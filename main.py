@@ -19,7 +19,6 @@ def init_db():
         return
     conn = get_db()
     cur = conn.cursor()
-    # 主表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS emails (
             id TEXT PRIMARY KEY,
@@ -31,7 +30,6 @@ def init_db():
             first_open_time TEXT
         );
     """)
-    # 打开流水子表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS email_logs (
             log_id SERIAL PRIMARY KEY,
@@ -78,7 +76,6 @@ def track_pixel(track_id: str, request: Request):
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     user_agent = request.headers.get("user-agent", "")
     
-    # 策略 1：识别 GoogleImageProxy 爬虫
     is_scanner_ua = "GoogleImageProxy" in user_agent
 
     conn = get_db()
@@ -90,17 +87,14 @@ def track_pixel(track_id: str, request: Request):
         send_dt = datetime.strptime(row["send_time"], "%Y-%m-%d %H:%M:%S")
         diff_seconds = (now - send_dt).total_seconds()
         
-        # 策略 2：发信后 30 秒内触发，判定为网络预扫
         is_too_fast = diff_seconds < 30
         is_scanner = is_scanner_ua or is_too_fast
 
-        # 记录单次流水
         cur.execute("INSERT INTO email_logs (email_id, open_time, is_scanner) VALUES (%s, %s, %s);", (track_id, now_str, is_scanner))
 
         new_count = (row["open_count"] or 0) + 1
         first_time = row["first_open_time"] if row["first_open_time"] != "-" else now_str
         
-        # 仅当当前状态是未读时，根据判定结果赋予初态
         new_status = row["status"]
         if new_status == "未读":
             new_status = "误扫" if is_scanner else "已读"
@@ -113,7 +107,6 @@ def track_pixel(track_id: str, request: Request):
             WHERE id = %s;
         """, (new_status, new_count, first_time, track_id))
     else:
-        # 未注册直接触发
         cur.execute("""
             INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time)
             VALUES (%s, '-', '未注册邮件', %s, '误扫', 1, %s);
@@ -162,7 +155,6 @@ def delete_log(log_id: int):
     email_id = log["email_id"]
     cur.execute("DELETE FROM email_logs WHERE log_id = %s;", (log_id,))
 
-    # 重新计算该邮件的打开次数与首次有效打开时间
     cur.execute("SELECT open_time FROM email_logs WHERE email_id = %s ORDER BY open_time ASC;", (email_id,))
     remaining_logs = cur.fetchall()
     
@@ -211,11 +203,9 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
         where_clause = "WHERE send_time >= %s"
         params.append((now - timedelta(days=90)).strftime("%Y-%m-%d 00:00:00"))
 
-    # 查邮件列表
     cur.execute(f"SELECT * FROM emails {where_clause} ORDER BY send_time DESC;", tuple(params))
     rows = cur.fetchall()
 
-    # 查出所有的明细流水
     email_ids = [r["id"] for r in rows]
     logs_map = {}
     if email_ids:
@@ -242,35 +232,35 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
         item_logs = logs_map.get(email_id, [])
         log_count = len(item_logs) if item_logs else (r["open_count"] or 0)
 
-        # 状态徽章样式与内联菜单
         st = r['status']
         if st == "已读":
-            badge_bg = "#dcfce7; color: #15803d; border: 1px solid #86efac;"
+            badge_class = "badge-read"
         elif st == "误扫":
-            badge_bg = "#fef9c3; color: #a16207; border: 1px solid #fde047;"
+            badge_class = "badge-scan"
         else:
-            badge_bg = "#f1f5f9; color: #64748b; border: 1px solid #cbd5e1;"
+            badge_class = "badge-unread"
 
-        # 构建悬浮时间轴 HTML
         timeline_items = ""
         for idx, l in enumerate(item_logs, 1):
             tag = '<span style="color:#eab308; font-size:11px; margin-left:4px;">(系统扫)</span>' if l['is_scanner'] else ''
             timeline_items += f"""
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12px; border-bottom:1px dashed #f1f5f9;">
+            <div id="log-row-{l['log_id']}" style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:12px; border-bottom:1px dashed #f1f5f9;">
                 <span>#{idx} {l['open_time']}{tag}</span>
-                <a href="javascript:void(0)" onclick="deleteLog({l['log_id']})" style="color:#ef4444; text-decoration:none; margin-left:12px;">删除</a>
+                <a href="javascript:void(0)" onclick="deleteLog({l['log_id']}, '{email_id}')" style="color:#ef4444; text-decoration:none; margin-left:12px; font-size:11px;">删除</a>
             </div>
             """
         
         timeline_html = ""
         if log_count > 0:
             timeline_html = f"""
-            <span style="font-size:11px; color:#2563eb; cursor:pointer; margin-left:6px;" onclick="toggleLogs('{email_id}')">
+            <span id="log-count-btn-{email_id}" style="font-size:11px; color:#2563eb; cursor:pointer; margin-left:6px; user-select:none;" onclick="toggleLogs(event, '{email_id}')">
                 (共{log_count}次 ▾)
             </span>
-            <div id="logs-{email_id}" style="display:none; position:absolute; z-index:100; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); padding:10px 14px; width:270px; margin-top:4px;">
-                <div style="font-weight:600; font-size:12px; margin-bottom:6px; color:#0f172a;">打开时间轴流水</div>
-                {timeline_items or '<div style="font-size:12px; color:#94a3b8;">暂无流水明细</div>'}
+            <div id="logs-{email_id}" class="popup-panel" style="display:none; position:absolute; z-index:100; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 20px rgba(0,0,0,0.12); padding:12px 14px; width:280px; margin-top:4px;">
+                <div style="font-weight:600; font-size:12px; margin-bottom:8px; color:#0f172a; border-bottom:1px solid #f1f5f9; padding-bottom:4px;">打开时间轴流水</div>
+                <div id="log-list-{email_id}">
+                    {timeline_items or '<div style="font-size:12px; color:#94a3b8;">暂无流水明细</div>'}
+                </div>
             </div>
             """
 
@@ -280,18 +270,18 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{r['send_time']}</td>
             <td style="padding: 12px 16px;">
                 <div style="position:relative; display:inline-block;">
-                    <button onclick="toggleMenu('{email_id}')" style="cursor:pointer; background:{badge_bg}; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; outline:none;">
-                        {st} ({log_count}次) ▾
+                    <button id="btn-{email_id}" onclick="toggleMenu(event, '{email_id}')" class="status-btn {badge_class}">
+                        <span id="txt-{email_id}">{st} ({log_count}次)</span> ▾
                     </button>
-                    <div id="menu-{email_id}" style="display:none; position:absolute; z-index:100; left:0; margin-top:4px; background:#fff; border:1px solid #e2e8f0; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.08); width:100px; overflow:hidden;">
-                        <div onclick="setStatus('{email_id}', '已读')" style="padding:8px 12px; font-size:12px; cursor:pointer; color:#15803d; hover:background:#f8fafc;">标为已读</div>
-                        <div onclick="setStatus('{email_id}', '误扫')" style="padding:8px 12px; font-size:12px; cursor:pointer; color:#a16207; border-top:1px solid #f1f5f9;">标为误扫</div>
-                        <div onclick="setStatus('{email_id}', '未读')" style="padding:8px 12px; font-size:12px; cursor:pointer; color:#64748b; border-top:1px solid #f1f5f9;">标为未读</div>
+                    <div id="menu-{email_id}" class="popup-panel menu-box" style="display:none; position:absolute; z-index:100; left:0; margin-top:4px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 20px rgba(0,0,0,0.12); width:110px; overflow:hidden;">
+                        <div class="menu-item" onclick="setStatus(event, '{email_id}', '已读', {log_count})" style="color:#15803d;">标为已读</div>
+                        <div class="menu-item" onclick="setStatus(event, '{email_id}', '误扫', {log_count})" style="color:#a16207; border-top:1px solid #f8fafc;">标为误扫</div>
+                        <div class="menu-item" onclick="setStatus(event, '{email_id}', '未读', {log_count})" style="color:#64748b; border-top:1px solid #f8fafc;">标为未读</div>
                     </div>
                 </div>
             </td>
             <td style="padding: 12px 16px; color: #475569; font-size: 13px; position:relative;">
-                {r['first_open_time']}{timeline_html}
+                <span id="first-time-{email_id}">{r['first_open_time']}</span>{timeline_html}
             </td>
         </tr>
         """
@@ -323,29 +313,93 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }}
             th {{ background: #f1f5f9; padding: 14px 16px; color: #0f172a; font-weight: 600; font-size: 13px; }}
             .table-title {{ padding: 20px; font-size: 16px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #f1f5f9; }}
+            
+            /* 状态徽章与交互 */
+            .status-btn {{ cursor: pointer; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; outline: none; transition: 0.15s; user-select: none; }}
+            .badge-read {{ background: #dcfce7; color: #15803d; border: 1px solid #86efac; }}
+            .badge-scan {{ background: #fef9c3; color: #a16207; border: 1px solid #fde047; }}
+            .badge-unread {{ background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }}
+            .menu-item {{ padding: 9px 14px; font-size: 12px; cursor: pointer; transition: background 0.1s; user-select: none; }}
+            .menu-item:hover {{ background: #f8fafc; font-weight: 600; }}
         </style>
         <script>
-            function toggleMenu(id) {{
-                const el = document.getElementById('menu-' + id);
-                el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            // 点击外部自动关闭所有菜单与弹窗
+            document.addEventListener('click', function() {{
+                document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
+            }});
+
+            function toggleMenu(e, id) {{
+                e.stopPropagation();
+                const menu = document.getElementById('menu-' + id);
+                const isShown = menu.style.display === 'block';
+                document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
+                menu.style.display = isShown ? 'none' : 'block';
             }}
-            function toggleLogs(id) {{
-                const el = document.getElementById('logs-' + id);
-                el.style.display = el.style.display === 'none' ? 'block' : 'none';
+
+            function toggleLogs(e, id) {{
+                e.stopPropagation();
+                const panel = document.getElementById('logs-' + id);
+                const isShown = panel.style.display === 'block';
+                document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
+                panel.style.display = isShown ? 'none' : 'block';
             }}
-            async function setStatus(id, st) {{
-                await fetch('/api/update_status', {{
+
+            // 瞬切修改状态：无感更新 UI，静默上报后台
+            async function setStatus(e, id, newStatus, count) {{
+                e.stopPropagation();
+                document.getElementById('menu-' + id).style.display = 'none';
+
+                const btn = document.getElementById('btn-' + id);
+                const txt = document.getElementById('txt-' + id);
+                txt.innerText = newStatus + ' (' + count + '次)';
+
+                btn.className = 'status-btn ' + (
+                    newStatus === '已读' ? 'badge-read' :
+                    newStatus === '误扫' ? 'badge-scan' : 'badge-unread'
+                );
+
+                // 静默上报数据库，不再 reload 页面
+                fetch('/api/update_status', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ id: id, status: st }})
+                    body: JSON.stringify({{ id: id, status: newStatus }})
                 }});
-                location.reload();
             }}
-            async function deleteLog(logId) {{
-                if (!confirm("确定删除这条打开记录吗？删除后次数将自动扣减")) return;
-                await fetch('/api/logs/' + logId, {{ method: 'DELETE' }});
-                location.reload();
+
+            // 局部无感删除单条流水
+            async function deleteLog(logId, emailId) {{
+                if (!confirm("确定删除这条打开记录吗？")) return;
+                
+                const res = await fetch('/api/logs/' + logId, {{ method: 'DELETE' }});
+                const data = await res.json();
+                
+                if (data.status === 'ok') {{
+                    // 局部剔除该行 DOM
+                    const row = document.getElementById('log-row-' + logId);
+                    if (row) row.remove();
+
+                    // 更新按钮显示
+                    const txt = document.getElementById('txt-' + emailId);
+                    if (txt) {{
+                        const curStatus = txt.innerText.split(' ')[0];
+                        txt.innerText = curStatus + ' (' + data.new_count + '次)';
+                    }}
+
+                    // 更新首次时间与次数按钮
+                    const ft = document.getElementById('first-time-' + emailId);
+                    if (ft) ft.innerText = data.new_first_time;
+                    
+                    const countBtn = document.getElementById('log-count-btn-' + emailId);
+                    if (countBtn) {{
+                        if (data.new_count > 0) {{
+                            countBtn.innerText = '(共' + data.new_count + '次 ▾)';
+                        }} else {{
+                            countBtn.style.display = 'none';
+                        }}
+                    }}
+                }}
             }}
+
             function applyCustomDate() {{
                 const start = document.getElementById('startDate').value;
                 const end = document.getElementById('endDate').value;
