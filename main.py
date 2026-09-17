@@ -9,7 +9,6 @@ from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
 
-# 访问根域名自动跳到大盘
 @app.get("/")
 def index():
     return RedirectResponse(url="/dashboard")
@@ -269,10 +268,14 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             </div>
             """
 
+        subj = r['subject'] or '-'
+        send_t = r['send_time']
+        first_t = r['first_open_time']
+
         rows_html += f"""
         <tr style="border-bottom: 1px solid #f1f5f9; height: 50px;">
-            <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">{r['subject'] or '-'}</td>
-            <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{r['send_time']}</td>
+            <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">{subj}</td>
+            <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{send_t}</td>
             <td style="padding: 12px 16px;">
                 <div style="position:relative; display:inline-block;">
                     <button id="btn-{email_id}" onclick="toggleMenu(event, '{email_id}')" class="status-btn {badge_class}">
@@ -286,7 +289,7 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
                 </div>
             </td>
             <td style="padding: 12px 16px; color: #475569; font-size: 13px; position:relative;">
-                <span id="first-time-{email_id}">{r['first_open_time']}</span>{timeline_html}
+                <span id="first-time-{email_id}">{first_t}</span>{timeline_html}
             </td>
         </tr>
         """
@@ -294,171 +297,178 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
     if not rows_html:
         rows_html = '<tr><td colspan="4" style="text-align:center; padding: 40px; color: #94a3b8;">该时间范围内暂无发信记录</td></tr>'
 
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>达人邮件追踪大盘</title>
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; margin: 0; padding: 40px; color: #334155; }}
-            .container {{ max-width: 1000px; margin: 0 auto; }}
-            .header {{ font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #0f172a; }}
-            .nav-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }}
-            .tabs {{ display: flex; gap: 8px; }}
-            .tab-btn {{ text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; }}
-            .custom-picker {{ display: flex; align-items: center; gap: 6px; font-size: 13px; }}
-            .custom-picker input {{ border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none; }}
-            .custom-picker button {{ background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; }}
-            .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }}
-            .card {{ background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-            .card-title {{ font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 500; }}
-            .card-value {{ font-size: 32px; font-weight: bold; color: #0f172a; }}
-            .table-container {{ background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-            table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }}
-            th {{ background: #f1f5f9; padding: 14px 16px; color: #0f172a; font-weight: 600; font-size: 13px; }}
-            .table-title {{ padding: 20px; font-size: 16px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #f1f5f9; }}
+    tab_all = get_tab_style('all')
+    tab_today = get_tab_style('today')
+    tab_yesterday = get_tab_style('yesterday')
+    tab_week = get_tab_style('week')
+    tab_month = get_tab_style('month')
+    tab_quarter = get_tab_style('quarter')
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>达人邮件追踪大盘</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; margin: 0; padding: 40px; color: #334155; }}
+        .container {{ max-width: 1000px; margin: 0 auto; }}
+        .header {{ font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #0f172a; }}
+        .nav-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }}
+        .tabs {{ display: flex; gap: 8px; }}
+        .tab-btn {{ text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; }}
+        .custom-picker {{ display: flex; align-items: center; gap: 6px; font-size: 13px; }}
+        .custom-picker input {{ border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none; }}
+        .custom-picker button {{ background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; }}
+        .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }}
+        .card {{ background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
+        .card-title {{ font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 500; }}
+        .card-value {{ font-size: 32px; font-weight: bold; color: #0f172a; }}
+        .table-container {{ background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
+        table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }}
+        th {{ background: #f1f5f9; padding: 14px 16px; color: #0f172a; font-weight: 600; font-size: 13px; }}
+        .table-title {{ padding: 20px; font-size: 16px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #f1f5f9; }}
+        .status-btn {{ cursor: pointer; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; outline: none; transition: 0.15s; user-select: none; }}
+        .badge-read {{ background: #dcfce7; color: #15803d; border: 1px solid #86efac; }}
+        .badge-scan {{ background: #fef9c3; color: #a16207; border: 1px solid #fde047; }}
+        .badge-unread {{ background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }}
+        .menu-item {{ padding: 9px 14px; font-size: 12px; cursor: pointer; transition: background 0.1s; user-select: none; }}
+        .menu-item:hover {{ background: #f8fafc; font-weight: 600; }}
+    </style>
+    <script>
+        document.addEventListener('click', function() {{
+            document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
+        }});
+
+        function toggleMenu(e, id) {{
+            e.stopPropagation();
+            var menu = document.getElementById('menu-' + id);
+            var isShown = menu.style.display === 'block';
+            document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
+            menu.style.display = isShown ? 'none' : 'block';
+        }}
+
+        function toggleLogs(e, id) {{
+            e.stopPropagation();
+            var panel = document.getElementById('logs-' + id);
+            var isShown = panel.style.display === 'block';
+            document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
+            panel.style.display = isShown ? 'none' : 'block';
+        }}
+
+        function setStatus(e, id, newStatus, count) {{
+            e.stopPropagation();
+            document.getElementById('menu-' + id).style.display = 'none';
+
+            var btn = document.getElementById('btn-' + id);
+            var txt = document.getElementById('txt-' + id);
+            txt.innerText = newStatus + ' (' + count + '次)';
+
+            var cls = 'status-btn ';
+            if (newStatus === '已读') cls += 'badge-read';
+            else if (newStatus === '误扫') cls += 'badge-scan';
+            else cls += 'badge-unread';
+            btn.className = cls;
+
+            fetch('/api/update_status', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ id: id, status: newStatus }})
+            }});
+        }}
+
+        function deleteLog(logId, emailId) {{
+            if (!confirm("确定删除这条打开记录吗？")) return;
             
-            .status-btn {{ cursor: pointer; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; outline: none; transition: 0.15s; user-select: none; }}
-            .badge-read {{ background: #dcfce7; color: #15803d; border: 1px solid #86efac; }}
-            .badge-scan {{ background: #fef9c3; color: #a16207; border: 1px solid #fde047; }}
-            .badge-unread {{ background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }}
-            .menu-item {{ padding: 9px 14px; font-size: 12px; cursor: pointer; transition: background 0.1s; user-select: none; }}
-            .menu-item:hover {{ background: #f8fafc; font-weight: 600; }}
-        </style>
-        <script>
-            document.addEventListener('click', function() {
-                document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
-            });
+            fetch('/api/logs/' + logId, {{ method: 'DELETE' }})
+                .then(function(res) {{ return res.json(); }})
+                .then(function(data) {{
+                    if (data.status === 'ok') {{
+                        var row = document.getElementById('log-row-' + logId);
+                        if (row) row.remove();
 
-            function toggleMenu(e, id) {
-                e.stopPropagation();
-                const menu = document.getElementById('menu-' + id);
-                const isShown = menu.style.display === 'block';
-                document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
-                menu.style.display = isShown ? 'none' : 'block';
-            }
+                        var txt = document.getElementById('txt-' + emailId);
+                        if (txt) {{
+                            var curStatus = txt.innerText.split(' ')[0];
+                            txt.innerText = curStatus + ' (' + data.new_count + '次)';
+                        }}
 
-            function toggleLogs(e, id) {
-                e.stopPropagation();
-                const panel = document.getElementById('logs-' + id);
-                const isShown = panel.style.display === 'block';
-                document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
-                panel.style.display = isShown ? 'none' : 'block';
-            }
+                        var ft = document.getElementById('first-time-' + emailId);
+                        if (ft) ft.innerText = data.new_first_time;
+                        
+                        var countBtn = document.getElementById('log-count-btn-' + emailId);
+                        if (countBtn) {{
+                            if (data.new_count > 0) {{
+                                countBtn.innerText = '(共' + data.new_count + '次 ▾)';
+                            }} else {{
+                                countBtn.style.display = 'none';
+                            }}
+                        }}
+                    }}
+                }});
+        }}
 
-            async function setStatus(e, id, newStatus, count) {
-                e.stopPropagation();
-                document.getElementById('menu-' + id).style.display = 'none';
-
-                const btn = document.getElementById('btn-' + id);
-                const txt = document.getElementById('txt-' + id);
-                txt.innerText = newStatus + ' (' + count + '次)';
-
-                btn.className = 'status-btn ' + (
-                    newStatus === '已读' ? 'badge-read' :
-                    newStatus === '误扫' ? 'badge-scan' : 'badge-unread'
-                );
-
-                fetch('/api/update_status', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: id, status: newStatus })
-                });
-            }
-
-            async function deleteLog(logId, emailId) {
-                if (!confirm("确定删除这条打开记录吗？")) return;
-                
-                const res = await fetch('/api/logs/' + logId, { method: 'DELETE' });
-                const data = await res.json();
-                
-                if (data.status === 'ok') {
-                    const row = document.getElementById('log-row-' + logId);
-                    if (row) row.remove();
-
-                    const txt = document.getElementById('txt-' + emailId);
-                    if (txt) {
-                        const curStatus = txt.innerText.split(' ')[0];
-                        txt.innerText = curStatus + ' (' + data.new_count + '次)';
-                    }
-
-                    const ft = document.getElementById('first-time-' + emailId);
-                    if (ft) ft.innerText = data.new_first_time;
-                    
-                    const countBtn = document.getElementById('log-count-btn-' + emailId);
-                    if (countBtn) {
-                        if (data.new_count > 0) {
-                            countBtn.innerText = '(共' + data.new_count + '次 ▾)';
-                        } else {
-                            countBtn.style.display = 'none';
-                        }
-                    }
-                }
-            }
-
-            function applyCustomDate() {
-                const start = document.getElementById('startDate').value;
-                const end = document.getElementById('endDate').value;
-                if (!start || !end) {
-                    alert("请选择起止日期");
-                    return;
-                }
-                window.location.href = '/dashboard?custom_start=' + start + '&custom_end=' + end;
-            }
-        </script>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">📧 达人邮件追踪大盘</div>
-            <div class="nav-bar">
-                <div class="tabs">
-                    <a href="/dashboard?time_range=all" class="tab-btn" style="{get_tab_style('all')}">全部</a>
-                    <a href="/dashboard?time_range=today" class="tab-btn" style="{get_tab_style('today')}">今天</a>
-                    <a href="/dashboard?time_range=yesterday" class="tab-btn" style="{get_tab_style('yesterday')}">昨天</a>
-                    <a href="/dashboard?time_range=week" class="tab-btn" style="{get_tab_style('week')}">7天</a>
-                    <a href="/dashboard?time_range=month" class="tab-btn" style="{get_tab_style('month')}">30天</a>
-                    <a href="/dashboard?time_range=quarter" class="tab-btn" style="{get_tab_style('quarter')}">90天</a>
-                </div>
-                <div class="custom-picker">
-                    <input type="date" id="startDate" value="{custom_start}">
-                    <span>至</span>
-                    <input type="date" id="endDate" value="{custom_end}">
-                    <button onclick="applyCustomDate()">筛选历史</button>
-                </div>
+        function applyCustomDate() {{
+            var start = document.getElementById('startDate').value;
+            var end = document.getElementById('endDate').value;
+            if (!start || !end) {{
+                alert("请选择起止日期");
+                return;
+            }}
+            window.location.href = '/dashboard?custom_start=' + start + '&custom_end=' + end;
+        }}
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">📧 达人邮件追踪大盘</div>
+        <div class="nav-bar">
+            <div class="tabs">
+                <a href="/dashboard?time_range=all" class="tab-btn" style="{tab_all}">全部</a>
+                <a href="/dashboard?time_range=today" class="tab-btn" style="{tab_today}">今天</a>
+                <a href="/dashboard?time_range=yesterday" class="tab-btn" style="{tab_yesterday}">昨天</a>
+                <a href="/dashboard?time_range=week" class="tab-btn" style="{tab_week}">7天</a>
+                <a href="/dashboard?time_range=month" class="tab-btn" style="{tab_month}">30天</a>
+                <a href="/dashboard?time_range=quarter" class="tab-btn" style="{tab_quarter}">90天</a>
             </div>
-            <div class="cards">
-                <div class="card">
-                    <div class="card-title">总发信量</div>
-                    <div class="card-value">{total_sent}</div>
-                </div>
-                <div class="card">
-                    <div class="card-title">真人有效打开数</div>
-                    <div class="card-value" style="color: #16a34a;">{total_opened}</div>
-                </div>
-                <div class="card">
-                    <div class="card-title">真实打开率</div>
-                    <div class="card-value" style="color: #2563eb;">{rate}</div>
-                </div>
-            </div>
-            <div class="table-container">
-                <div class="table-title">发信明细列表</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 44%;">邮件主题</th>
-                            <th style="width: 20%;">发送时间</th>
-                            <th style="width: 16%;">状态 (点击修改)</th>
-                            <th style="width: 20%;">首次打开 (流水)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                    </tbody>
-                </table>
+            <div class="custom-picker">
+                <input type="date" id="startDate" value="{custom_start}">
+                <span>至</span>
+                <input type="date" id="endDate" value="{custom_end}">
+                <button onclick="applyCustomDate()">筛选历史</button>
             </div>
         </div>
-    </body>
-    </html>
-    """
+        <div class="cards">
+            <div class="card">
+                <div class="card-title">总发信量</div>
+                <div class="card-value">{total_sent}</div>
+            </div>
+            <div class="card">
+                <div class="card-title">真人有效打开数</div>
+                <div class="card-value" style="color: #16a34a;">{total_opened}</div>
+            </div>
+            <div class="card">
+                <div class="card-title">真实打开率</div>
+                <div class="card-value" style="color: #2563eb;">{rate}</div>
+            </div>
+        </div>
+        <div class="table-container">
+            <div class="table-title">发信明细列表</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 44%;">邮件主题</th>
+                        <th style="width: 20%;">发送时间</th>
+                        <th style="width: 16%;">状态 (点击修改)</th>
+                        <th style="width: 20%;">首次打开 (流水)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
+"""
     return html
