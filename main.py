@@ -2,12 +2,17 @@ import os
 import base64
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Response, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
+
+# 访问根域名自动跳到大盘
+@app.get("/")
+def index():
+    return RedirectResponse(url="/dashboard")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -314,7 +319,6 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             th {{ background: #f1f5f9; padding: 14px 16px; color: #0f172a; font-weight: 600; font-size: 13px; }}
             .table-title {{ padding: 20px; font-size: 16px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #f1f5f9; }}
             
-            /* 状态徽章与交互 */
             .status-btn {{ cursor: pointer; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; outline: none; transition: 0.15s; user-select: none; }}
             .badge-read {{ background: #dcfce7; color: #15803d; border: 1px solid #86efac; }}
             .badge-scan {{ background: #fef9c3; color: #a16207; border: 1px solid #fde047; }}
@@ -323,29 +327,27 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             .menu-item:hover {{ background: #f8fafc; font-weight: 600; }}
         </style>
         <script>
-            // 点击外部自动关闭所有菜单与弹窗
-            document.addEventListener('click', function() {{
+            document.addEventListener('click', function() {
                 document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
-            }});
+            });
 
-            function toggleMenu(e, id) {{
+            function toggleMenu(e, id) {
                 e.stopPropagation();
                 const menu = document.getElementById('menu-' + id);
                 const isShown = menu.style.display === 'block';
                 document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
                 menu.style.display = isShown ? 'none' : 'block';
-            }}
+            }
 
-            function toggleLogs(e, id) {{
+            function toggleLogs(e, id) {
                 e.stopPropagation();
                 const panel = document.getElementById('logs-' + id);
                 const isShown = panel.style.display === 'block';
                 document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
                 panel.style.display = isShown ? 'none' : 'block';
-            }}
+            }
 
-            // 瞬切修改状态：无感更新 UI，静默上报后台
-            async function setStatus(e, id, newStatus, count) {{
+            async function setStatus(e, id, newStatus, count) {
                 e.stopPropagation();
                 document.getElementById('menu-' + id).style.display = 'none';
 
@@ -358,57 +360,52 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
                     newStatus === '误扫' ? 'badge-scan' : 'badge-unread'
                 );
 
-                // 静默上报数据库，不再 reload 页面
-                fetch('/api/update_status', {{
+                fetch('/api/update_status', {
                     method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ id: id, status: newStatus }})
-                }});
-            }}
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, status: newStatus })
+                });
+            }
 
-            // 局部无感删除单条流水
-            async function deleteLog(logId, emailId) {{
+            async function deleteLog(logId, emailId) {
                 if (!confirm("确定删除这条打开记录吗？")) return;
                 
-                const res = await fetch('/api/logs/' + logId, {{ method: 'DELETE' }});
+                const res = await fetch('/api/logs/' + logId, { method: 'DELETE' });
                 const data = await res.json();
                 
-                if (data.status === 'ok') {{
-                    // 局部剔除该行 DOM
+                if (data.status === 'ok') {
                     const row = document.getElementById('log-row-' + logId);
                     if (row) row.remove();
 
-                    // 更新按钮显示
                     const txt = document.getElementById('txt-' + emailId);
-                    if (txt) {{
+                    if (txt) {
                         const curStatus = txt.innerText.split(' ')[0];
                         txt.innerText = curStatus + ' (' + data.new_count + '次)';
-                    }}
+                    }
 
-                    // 更新首次时间与次数按钮
                     const ft = document.getElementById('first-time-' + emailId);
                     if (ft) ft.innerText = data.new_first_time;
                     
                     const countBtn = document.getElementById('log-count-btn-' + emailId);
-                    if (countBtn) {{
-                        if (data.new_count > 0) {{
+                    if (countBtn) {
+                        if (data.new_count > 0) {
                             countBtn.innerText = '(共' + data.new_count + '次 ▾)';
-                        }} else {{
+                        } else {
                             countBtn.style.display = 'none';
-                        }}
-                    }}
-                }}
-            }}
+                        }
+                    }
+                }
+            }
 
-            function applyCustomDate() {{
+            function applyCustomDate() {
                 const start = document.getElementById('startDate').value;
                 const end = document.getElementById('endDate').value;
-                if (!start || !end) {{
+                if (!start || !end) {
                     alert("请选择起止日期");
                     return;
-                }}
+                }
                 window.location.href = '/dashboard?custom_start=' + start + '&custom_end=' + end;
-            }}
+            }
         </script>
     </head>
     <body>
