@@ -44,7 +44,7 @@ PIXEL_DATA = base64.b64decode(PIXEL_GIF_BASE64)
 
 class RegisterRequest(BaseModel):
     id: str
-    recipient: str = ""
+    recipient: str = "-"
     subject: str = ""
 
 @app.post("/api/register")
@@ -55,9 +55,7 @@ def register_mail(req: RegisterRequest):
     cur.execute("""
         INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time)
         VALUES (%s, %s, %s, %s, '未读', 0, '-')
-        ON CONFLICT (id) DO UPDATE SET 
-            recipient = EXCLUDED.recipient,
-            subject = EXCLUDED.subject;
+        ON CONFLICT (id) DO NOTHING;
     """, (req.id, req.recipient, req.subject, now_str))
     conn.commit()
     cur.close()
@@ -79,7 +77,12 @@ def track_pixel(track_id: str):
             SET status = '已读', open_count = %s, first_open_time = %s 
             WHERE id = %s;
         """, (new_count, first_time, track_id))
-        conn.commit()
+    else:
+        cur.execute("""
+            INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time)
+            VALUES (%s, '-', '未注册邮件', %s, '已读', 1, %s);
+        """, (track_id, now_str, now_str))
+    conn.commit()
     cur.close()
     conn.close()
     return Response(
@@ -111,28 +114,24 @@ def get_dashboard(time_range: str = "all"):
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
-    # 时间筛选逻辑
     now = datetime.now()
     where_clause = ""
     params = []
     
     if time_range == "today":
-        start_date = now.strftime("%Y-%m-%d 00:00:00")
         where_clause = "WHERE send_time >= %s"
-        params.append(start_date)
+        params.append(now.strftime("%Y-%m-%d 00:00:00"))
     elif time_range == "yesterday":
         yesterday_start = (now - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
         yesterday_end = (now - timedelta(days=1)).strftime("%Y-%m-%d 23:59:59")
         where_clause = "WHERE send_time >= %s AND send_time <= %s"
         params.extend([yesterday_start, yesterday_end])
     elif time_range == "week":
-        start_date = (now - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00")
         where_clause = "WHERE send_time >= %s"
-        params.append(start_date)
+        params.append((now - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00"))
     elif time_range == "month":
-        start_date = (now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
         where_clause = "WHERE send_time >= %s"
-        params.append(start_date)
+        params.append((now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00"))
 
     query = f"SELECT * FROM emails {where_clause} ORDER BY send_time DESC;"
     cur.execute(query, tuple(params))
@@ -162,12 +161,9 @@ def get_dashboard(time_range: str = "all"):
             status_color = "color: #94a3b8;"
             badge = f"未读 ({r['open_count']}次)" if (r['open_count'] or 0) > 0 else "未读"
 
-        recipient_display = r['recipient'] if (r['recipient'] and r['recipient'].strip()) else "-"
-
         rows_html += f"""
         <tr style="border-bottom: 1px solid #f1f5f9; height: 50px;">
-            <td style="padding: 12px 16px; color: #1e293b; font-weight: 500;">{recipient_display}</td>
-            <td style="padding: 12px 16px; color: #334155;">{r['subject'] or '-'}</td>
+            <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">{r['subject'] or '-'}</td>
             <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{r['send_time']}</td>
             <td style="padding: 12px 16px; {status_color}">{badge}</td>
             <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{r['first_open_time']}</td>
@@ -180,18 +176,18 @@ def get_dashboard(time_range: str = "all"):
         """
 
     if not rows_html:
-        rows_html = '<tr><td colspan="6" style="text-align:center; padding: 40px; color: #94a3b8;">该时间范围内暂无发信记录</td></tr>'
+        rows_html = '<tr><td colspan="5" style="text-align:center; padding: 40px; color: #94a3b8;">该时间范围内暂无发信记录</td></tr>'
 
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="utf-8">
-        <title>达人邮件打开率大盘</title>
+        <title>达人邮件追踪大盘</title>
         <style>
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; margin: 0; padding: 40px; color: #334155; }}
-            .container {{ max-width: 1100px; margin: 0 auto; }}
-            .header {{ font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #0f172a; display: flex; align-items: center; justify-content: space-between; }}
+            .container {{ max-width: 1000px; margin: 0 auto; }}
+            .header {{ font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #0f172a; }}
             .tabs {{ display: flex; gap: 8px; margin-bottom: 24px; }}
             .tab-btn {{ text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; }}
             .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }}
@@ -216,10 +212,7 @@ def get_dashboard(time_range: str = "all"):
     </head>
     <body>
         <div class="container">
-            <div class="header">
-                <div>📧 达人邮件追踪大盘</div>
-            </div>
-
+            <div class="header">📧 达人邮件追踪大盘</div>
             <div class="tabs">
                 <a href="/dashboard?time_range=all" class="tab-btn" style="{get_tab_style('all')}">全部时间</a>
                 <a href="/dashboard?time_range=today" class="tab-btn" style="{get_tab_style('today')}">今天</a>
@@ -227,7 +220,6 @@ def get_dashboard(time_range: str = "all"):
                 <a href="/dashboard?time_range=week" class="tab-btn" style="{get_tab_style('week')}">最近7天</a>
                 <a href="/dashboard?time_range=month" class="tab-btn" style="{get_tab_style('month')}">最近30天</a>
             </div>
-
             <div class="cards">
                 <div class="card">
                     <div class="card-title">总发信量</div>
@@ -242,18 +234,16 @@ def get_dashboard(time_range: str = "all"):
                     <div class="card-value" style="color: #2563eb;">{rate}</div>
                 </div>
             </div>
-
             <div class="table-container">
                 <div class="table-title">发信明细列表</div>
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 22%;">收件人</th>
-                            <th style="width: 30%;">主题</th>
-                            <th style="width: 16%;">发送时间</th>
-                            <th style="width: 12%;">状态</th>
-                            <th style="width: 16%;">首次打开时间</th>
-                            <th style="width: 14%;">操作</th>
+                            <th style="width: 38%;">邮件主题</th>
+                            <th style="width: 18%;">发送时间</th>
+                            <th style="width: 14%;">状态</th>
+                            <th style="width: 18%;">首次打开时间</th>
+                            <th style="width: 12%;">操作</th>
                         </tr>
                     </thead>
                     <tbody>
