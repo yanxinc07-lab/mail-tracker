@@ -112,8 +112,7 @@ def track_pixel(track_id: str, request: Request):
             conn.close()
             return Response(content=PIXEL_DATA, media_type="image/gif", headers=headers)
 
-        is_scanner_ua = "GoogleImageProxy" in user_agent
-        is_scanner = is_scanner_ua
+        is_scanner = False
 
         cur.execute("INSERT INTO email_logs (email_id, open_time, is_scanner) VALUES (%s, %s, %s);", (track_id, now_str, is_scanner))
 
