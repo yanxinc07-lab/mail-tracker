@@ -3,13 +3,23 @@ import base64
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
 
-@app.get("/")
+# 允许跨域，彻底放行来自 Gmail 网页端的所有请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
     return RedirectResponse(url="/dashboard")
 
@@ -80,7 +90,12 @@ def track_pixel(track_id: str, request: Request):
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     user_agent = request.headers.get("user-agent", "")
     
-    is_scanner_ua = "GoogleImageProxy" in user_agent
+    # 基础响应头（禁止缓存）
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -91,8 +106,14 @@ def track_pixel(track_id: str, request: Request):
         send_dt = datetime.strptime(row["send_time"], "%Y-%m-%d %H:%M:%S")
         diff_seconds = (now - send_dt).total_seconds()
         
-        is_too_fast = diff_seconds < 30
-        is_scanner = is_scanner_ua or is_too_fast
+        # 核心改动：30 秒内一律静默丢弃，不写数据库、不改状态、不留误扫杂音！
+        if diff_seconds < 30:
+            cur.close()
+            conn.close()
+            return Response(content=PIXEL_DATA, media_type="image/gif", headers=headers)
+
+        is_scanner_ua = "GoogleImageProxy" in user_agent
+        is_scanner = is_scanner_ua
 
         cur.execute("INSERT INTO email_logs (email_id, open_time, is_scanner) VALUES (%s, %s, %s);", (track_id, now_str, is_scanner))
 
@@ -110,26 +131,16 @@ def track_pixel(track_id: str, request: Request):
             SET status = %s, open_count = %s, first_open_time = %s 
             WHERE id = %s;
         """, (new_status, new_count, first_time, track_id))
-    else:
-        cur.execute("""
-            INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time)
-            VALUES (%s, '-', '未注册邮件', %s, '误扫', 1, %s);
-        """, (track_id, now_str, now_str))
-        cur.execute("INSERT INTO email_logs (email_id, open_time, is_scanner) VALUES (%s, %s, TRUE);", (track_id, now_str))
 
-    conn.commit()
+        conn.commit()
+    else:
+        # 如果是未注册邮件直接来访（比如意外请求），直接忽略不记
+        pass
+
     cur.close()
     conn.close()
 
-    return Response(
-        content=PIXEL_DATA, 
-        media_type="image/gif",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0"
-        }
-    )
+    return Response(content=PIXEL_DATA, media_type="image/gif", headers=headers)
 
 class UpdateStatusRequest(BaseModel):
     id: str
