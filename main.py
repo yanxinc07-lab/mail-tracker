@@ -278,13 +278,19 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             </div>
             """
 
-        subj = r['subject'] or '-'
+        subj = r['subject'] or '无主题'
+        recipient = r['recipient'] if (r['recipient'] and r['recipient'] != '-') else ''
+        recipient_html = f'<div style="font-size: 12px; color: #64748b; margin-top: 4px; font-weight: normal;">👤 {recipient}</div>' if recipient else ''
+        
         send_t = r['send_time']
         first_t = r['first_open_time']
 
         rows_html += f"""
-        <tr style="border-bottom: 1px solid #f1f5f9; height: 50px;">
-            <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">{subj}</td>
+        <tr style="border-bottom: 1px solid #f1f5f9; height: 56px;">
+            <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">
+                <div>{subj}</div>
+                {recipient_html}
+            </td>
             <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{send_t}</td>
             <td style="padding: 12px 16px;">
                 <div style="position:relative; display:inline-block;">
@@ -466,7 +472,7 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 44%;">邮件主题</th>
+                        <th style="width: 44%;">邮件主题与收件人</th>
                         <th style="width: 20%;">发送时间</th>
                         <th style="width: 16%;">状态 (点击修改)</th>
                         <th style="width: 20%;">首次打开 (流水)</th>
