@@ -308,12 +308,13 @@ document.getElementById("openDashBtn").addEventListener("click", function () {
 
 }, true);"""
 
+    # 动态在内存中打包 zip (平级解压，杜绝套娃)
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        zip_file.writestr("mail-tracker-extension/manifest.json", manifest_code)
-        zip_file.writestr("mail-tracker-extension/popup.html", popup_html_code)
-        zip_file.writestr("mail-tracker-extension/popup.js", popup_js_code)
-        zip_file.writestr("mail-tracker-extension/content.js", content_js_code)
+        zip_file.writestr("manifest.json", manifest_code)
+        zip_file.writestr("popup.html", popup_html_code)
+        zip_file.writestr("popup.js", popup_js_code)
+        zip_file.writestr("content.js", content_js_code)
     
     zip_buffer.seek(0)
     return StreamingResponse(
