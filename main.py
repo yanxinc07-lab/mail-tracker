@@ -1,7 +1,7 @@
 import os
 import base64
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Response, Request
+from fastapi import FastAPI, Response, Request, Header
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
 
-# 允许跨域，彻底放行来自 Gmail 网页端的所有请求
+# 允许跨域
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -90,9 +90,7 @@ def register_mail(req: RegisterRequest):
 def track_pixel(track_id: str, request: Request):
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    user_agent = request.headers.get("user-agent", "")
     
-    # 基础响应头（禁止缓存）
     headers = {
         "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
         "Pragma": "no-cache",
@@ -108,7 +106,7 @@ def track_pixel(track_id: str, request: Request):
         send_dt = datetime.strptime(row["send_time"], "%Y-%m-%d %H:%M:%S")
         diff_seconds = (now - send_dt).total_seconds()
         
-        # 核心改动：30 秒内一律静默丢弃，不写数据库、不改状态、不留误扫杂音！
+        # 30秒静默丢弃
         if diff_seconds < 30:
             cur.close()
             conn.close()
@@ -134,13 +132,9 @@ def track_pixel(track_id: str, request: Request):
         """, (new_status, new_count, first_time, track_id))
 
         conn.commit()
-    else:
-        # 如果是未注册邮件直接来访（比如意外请求），直接忽略不记
-        pass
 
     cur.close()
     conn.close()
-
     return Response(content=PIXEL_DATA, media_type="image/gif", headers=headers)
 
 class UpdateStatusRequest(BaseModel):
@@ -189,36 +183,41 @@ def delete_log(log_id: int):
     conn.close()
     return {"status": "ok", "new_count": new_count, "new_first_time": new_first_time}
 
-@app.get("/dashboard", response_class=HTMLResponse)
-def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: str = ""):
+# 数据拉取 API：严格按 user_id 进行逻辑隔离
+@app.get("/api/dashboard_data")
+def get_dashboard_data(time_range: str = "all", custom_start: str = "", custom_end: str = "", user_id: str = ""):
+    if not user_id:
+        return {"rows": [], "total_sent": 0, "total_opened": 0, "rate": "0.0%", "logs_map": {}}
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    
     now = datetime.now()
-    where_clause = ""
-    params = []
+    
+    where_parts = ["user_id = %s"]
+    params = [user_id]
     
     if custom_start and custom_end:
-        where_clause = "WHERE send_time >= %s AND send_time <= %s"
+        where_parts.append("send_time >= %s AND send_time <= %s")
         params.extend([f"{custom_start} 00:00:00", f"{custom_end} 23:59:59"])
     elif time_range == "today":
-        where_clause = "WHERE send_time >= %s"
+        where_parts.append("send_time >= %s")
         params.append(now.strftime("%Y-%m-%d 00:00:00"))
     elif time_range == "yesterday":
         y_start = (now - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
         y_end = (now - timedelta(days=1)).strftime("%Y-%m-%d 23:59:59")
-        where_clause = "WHERE send_time >= %s AND send_time <= %s"
+        where_parts.append("send_time >= %s AND send_time <= %s")
         params.extend([y_start, y_end])
     elif time_range == "week":
-        where_clause = "WHERE send_time >= %s"
+        where_parts.append("send_time >= %s")
         params.append((now - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00"))
     elif time_range == "month":
-        where_clause = "WHERE send_time >= %s"
+        where_parts.append("send_time >= %s")
         params.append((now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00"))
     elif time_range == "quarter":
-        where_clause = "WHERE send_time >= %s"
+        where_parts.append("send_time >= %s")
         params.append((now - timedelta(days=90)).strftime("%Y-%m-%d 00:00:00"))
 
+    where_clause = "WHERE " + " AND ".join(where_parts)
     cur.execute(f"SELECT * FROM emails {where_clause} ORDER BY send_time DESC;", tuple(params))
     rows = cur.fetchall()
 
@@ -237,290 +236,313 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
     total_opened = sum(1 for r in rows if r["status"] == "已读")
     rate = f"{(total_opened / total_sent * 100):.1f}%" if total_sent > 0 else "0.0%"
 
-    def get_tab_style(target):
-        active = "background:#2563eb; color:#fff; font-weight:600;"
-        inactive = "background:#fff; color:#475569; border:1px solid #cbd5e1;"
-        return active if time_range == target and not custom_start else inactive
+    return {
+        "rows": rows,
+        "logs_map": logs_map,
+        "total_sent": total_sent,
+        "total_opened": total_opened,
+        "rate": rate
+    }
 
-    rows_html = ""
-    for r in rows:
-        email_id = r["id"]
-        item_logs = logs_map.get(email_id, [])
-        log_count = len(item_logs) if item_logs else (r["open_count"] or 0)
-
-        st = r['status']
-        if st == "已读":
-            badge_class = "badge-read"
-        elif st == "误扫":
-            badge_class = "badge-scan"
-        else:
-            badge_class = "badge-unread"
-
-        timeline_items = ""
-        for idx, l in enumerate(item_logs, 1):
-            tag = '<span style="color:#eab308; font-size:11px; margin-left:4px;">(系统扫)</span>' if l['is_scanner'] else ''
-            timeline_items += f"""
-            <div id="log-row-{l['log_id']}" style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:12px; border-bottom:1px dashed #f1f5f9;">
-                <span>#{idx} {l['open_time']}{tag}</span>
-                <a href="javascript:void(0)" onclick="deleteLog({l['log_id']}, '{email_id}')" style="color:#ef4444; text-decoration:none; margin-left:12px; font-size:11px;">删除</a>
-            </div>
-            """
-        
-        timeline_html = ""
-        if log_count > 0:
-            timeline_html = f"""
-            <span id="log-count-btn-{email_id}" style="font-size:11px; color:#2563eb; cursor:pointer; margin-left:6px; user-select:none;" onclick="toggleLogs(event, '{email_id}')">
-                (共{log_count}次 ▾)
-            </span>
-            <div id="logs-{email_id}" class="popup-panel" style="display:none; position:absolute; z-index:100; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 20px rgba(0,0,0,0.12); padding:12px 14px; width:280px; margin-top:4px;">
-                <div style="font-weight:600; font-size:12px; margin-bottom:8px; color:#0f172a; border-bottom:1px solid #f1f5f9; padding-bottom:4px;">打开时间轴流水</div>
-                <div id="log-list-{email_id}">
-                    {timeline_items or '<div style="font-size:12px; color:#94a3b8;">暂无流水明细</div>'}
-                </div>
-            </div>
-            """
-
-        subj = r['subject'] or '无主题'
-        recipient = r['recipient'] if (r['recipient'] and r['recipient'] != '-') else ''
-        recipient_html = f'<div style="font-size: 12px; color: #64748b; margin-top: 4px; font-weight: normal;">👤 {recipient}</div>' if recipient else ''
-        
-        send_t = r['send_time']
-        first_t = r['first_open_time']
-
-        rows_html += f"""
-        <tr style="border-bottom: 1px solid #f1f5f9; height: 56px;">
-            <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">
-                <div>{subj}</div>
-                {recipient_html}
-            </td>
-            <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">{send_t}</td>
-            <td style="padding: 12px 16px;">
-                <div style="position:relative; display:inline-block;">
-                    <button id="btn-{email_id}" onclick="toggleMenu(event, '{email_id}')" class="status-btn {badge_class}">
-                        <span id="txt-{email_id}">{st} ({log_count}次)</span> ▾
-                    </button>
-                    <div id="menu-{email_id}" class="popup-panel menu-box" style="display:none; position:absolute; z-index:100; left:0; margin-top:4px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 20px rgba(0,0,0,0.12); width:110px; overflow:hidden;">
-                        <div class="menu-item" onclick="setStatus(event, '{email_id}', '已读', {log_count})" style="color:#15803d;">标为已读</div>
-                        <div class="menu-item" onclick="setStatus(event, '{email_id}', '误扫', {log_count})" style="color:#a16207; border-top:1px solid #f8fafc;">标为误扫</div>
-                        <div class="menu-item" onclick="setStatus(event, '{email_id}', '未读', {log_count})" style="color:#64748b; border-top:1px solid #f8fafc;">标为未读</div>
-                    </div>
-                </div>
-            </td>
-            <td style="padding: 12px 16px; color: #475569; font-size: 13px; position:relative;">
-                <span id="first-time-{email_id}">{first_t}</span>{timeline_html}
-            </td>
-        </tr>
-        """
-
-    if not rows_html:
-        rows_html = '<tr><td colspan="4" style="text-align:center; padding: 40px; color: #94a3b8;">该时间范围内暂无发信记录</td></tr>'
-
-    tab_all = get_tab_style('all')
-    tab_today = get_tab_style('today')
-    tab_yesterday = get_tab_style('yesterday')
-    tab_week = get_tab_style('week')
-    tab_month = get_tab_style('month')
-    tab_quarter = get_tab_style('quarter')
-
-    html = f"""<!DOCTYPE html>
+@app.get("/dashboard", response_class=HTMLResponse)
+def get_dashboard():
+    html = """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>达人邮件追踪大盘</title>
-    <!-- 引入 Supabase 官方标准 JS SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; margin: 0; padding: 40px; color: #334155; }}
-        .container {{ max-width: 1000px; margin: 0 auto; display: none; }}
-        .header-box {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }}
-        .header {{ font-size: 24px; font-weight: bold; color: #0f172a; }}
-        .user-info {{ font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 12px; }}
-        .logout-btn {{ background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; color: #ef4444; font-size: 12px; }}
-        .nav-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }}
-        .tabs {{ display: flex; gap: 8px; }}
-        .tab-btn {{ text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; }}
-        .custom-picker {{ display: flex; align-items: center; gap: 6px; font-size: 13px; }}
-        .custom-picker input {{ border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none; }}
-        .custom-picker button {{ background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; }}
-        .cards {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }}
-        .card {{ background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-        .card-title {{ font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 500; }}
-        .card-value {{ font-size: 32px; font-weight: bold; color: #0f172a; }}
-        .table-container {{ background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-        table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }}
-        th {{ background: #f1f5f9; padding: 14px 16px; color: #0f172a; font-weight: 600; font-size: 13px; }}
-        .table-title {{ padding: 20px; font-size: 16px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #f1f5f9; }}
-        .status-btn {{ cursor: pointer; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; outline: none; transition: 0.15s; user-select: none; }}
-        .badge-read {{ background: #dcfce7; color: #15803d; border: 1px solid #86efac; }}
-        .badge-scan {{ background: #fef9c3; color: #a16207; border: 1px solid #fde047; }}
-        .badge-unread {{ background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }}
-        .menu-item {{ padding: 9px 14px; font-size: 12px; cursor: pointer; transition: background 0.1s; user-select: none; }}
-        .menu-item:hover {{ background: #f8fafc; font-weight: 600; }}
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; margin: 0; padding: 40px; color: #334155; }
+        .container { max-width: 1000px; margin: 0 auto; display: none; }
+        .header-box { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header { font-size: 24px; font-weight: bold; color: #0f172a; }
+        .user-info { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 12px; }
+        .logout-btn { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; color: #ef4444; font-size: 12px; }
+        .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+        .tabs { display: flex; gap: 8px; }
+        .tab-btn { text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; cursor: pointer; background: #fff; color: #475569; border: 1px solid #cbd5e1; }
+        .tab-btn.active { background: #2563eb; color: #fff; font-weight: 600; border-color: #2563eb; }
+        .custom-picker { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+        .custom-picker input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none; }
+        .custom-picker button { background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+        .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        .card-title { font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 500; }
+        .card-value { font-size: 32px; font-weight: bold; color: #0f172a; }
+        .table-container { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+        th { background: #f1f5f9; padding: 14px 16px; color: #0f172a; font-weight: 600; font-size: 13px; }
+        .table-title { padding: 20px; font-size: 16px; font-weight: bold; color: #0f172a; border-bottom: 1px solid #f1f5f9; }
+        .status-btn { cursor: pointer; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; outline: none; transition: 0.15s; user-select: none; }
+        .badge-read { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .badge-scan { background: #fef9c3; color: #a16207; border: 1px solid #fde047; }
+        .badge-unread { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }
+        .menu-item { padding: 9px 14px; font-size: 12px; cursor: pointer; transition: background 0.1s; user-select: none; }
+        .menu-item:hover { background: #f8fafc; font-weight: 600; }
 
-        /* 登录遮罩层与卡片样式 */
-        #authOverlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f8fafc; display: flex; justify-content: center; align-items: center; z-index: 9999; }}
-        .auth-card {{ background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; width: 340px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
-        .auth-card h2 {{ margin: 0 0 8px 0; font-size: 20px; color: #0f172a; text-align: center; }}
-        .auth-card p {{ margin: 0 0 24px 0; font-size: 13px; color: #64748b; text-align: center; }}
-        .auth-input {{ width: 100%; box-sizing: border-box; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 14px; font-size: 14px; outline: none; }}
-        .auth-btn {{ width: 100%; background: #2563eb; color: white; border: none; padding: 10px 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }}
-        .auth-toggle {{ margin-top: 16px; text-align: center; font-size: 12px; color: #64748b; }}
-        .auth-toggle a {{ color: #2563eb; text-decoration: none; cursor: pointer; font-weight: 600; }}
-        #authMsg {{ font-size: 12px; margin-top: 10px; text-align: center; }}
+        #authOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f8fafc; display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .auth-card { background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; width: 340px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        .auth-card h2 { margin: 0 0 8px 0; font-size: 20px; color: #0f172a; text-align: center; }
+        .auth-card p { margin: 0 0 24px 0; font-size: 13px; color: #64748b; text-align: center; }
+        .auth-input { width: 100%; box-sizing: border-box; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 14px; font-size: 14px; outline: none; }
+        .auth-btn { width: 100%; background: #2563eb; color: white; border: none; padding: 10px 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+        .auth-toggle { margin-top: 16px; text-align: center; font-size: 12px; color: #64748b; }
+        .auth-toggle a { color: #2563eb; text-decoration: none; cursor: pointer; font-weight: 600; }
+        #authMsg { font-size: 12px; margin-top: 10px; text-align: center; }
     </style>
     <script>
         const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZXFocXVvcmp5Y2pkeGJ1cnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTY5MjUsImV4cCI6MjEwNTE5MjkyNX0.JzTkH-xoiExeSxHGu420PgVfUNV_Jp_zZoJQn3yqY2g";
         const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        let currentUser = null;
+        let currentTimeRange = "all";
         let isRegisterMode = false;
 
-        async function checkAuth() {{
-            const {{ data: {{ session }} }} = await client.auth.getSession();
-            if (session && session.user) {{
+        async function checkAuth() {
+            const { data: { session } } = await client.auth.getSession();
+            if (session && session.user) {
+                currentUser = session.user;
                 document.getElementById('authOverlay').style.display = 'none';
                 document.getElementById('mainContainer').style.display = 'block';
-                document.getElementById('userEmailText').innerText = session.user.email;
-            }} else {{
+                document.getElementById('userEmailText').innerText = currentUser.email;
+                loadData();
+            } else {
+                currentUser = null;
                 document.getElementById('authOverlay').style.display = 'flex';
                 document.getElementById('mainContainer').style.display = 'none';
-            }}
-        }}
+            }
+        }
 
-        function toggleMode() {{
+        function toggleMode() {
             isRegisterMode = !isRegisterMode;
             document.getElementById('authTitle').innerText = isRegisterMode ? '注册新账号' : '登录系统';
             document.getElementById('authBtn').innerText = isRegisterMode ? '立即注册' : '登 录';
             document.getElementById('modeText').innerText = isRegisterMode ? '已有账号？' : '还没有账号？';
             document.getElementById('modeBtn').innerText = isRegisterMode ? '去登录' : '立即注册';
             document.getElementById('authMsg').innerText = '';
-        }}
+        }
 
-        async function handleAuth() {{
+        async function handleAuth() {
             const email = document.getElementById('authEmail').value.trim();
             const password = document.getElementById('authPassword').value;
             const msgEl = document.getElementById('authMsg');
-            if (!email || !password) {{
+            if (!email || !password) {
                 msgEl.style.color = '#ef4444';
                 msgEl.innerText = '请填写邮箱和密码';
                 return;
-            }}
+            }
             msgEl.style.color = '#2563eb';
             msgEl.innerText = isRegisterMode ? '正在注册...' : '正在登录...';
 
-            if (isRegisterMode) {{
-                const {{ data, error }} = await client.auth.signUp({{ email, password }});
-                if (error) {{
+            if (isRegisterMode) {
+                const { data, error } = await client.auth.signUp({ email, password });
+                if (error) {
                     msgEl.style.color = '#ef4444';
                     msgEl.innerText = error.message;
-                }} else {{
+                } else {
                     msgEl.style.color = '#16a34a';
-                    msgEl.innerText = '注册成功！请查收验证邮件或直接登录';
-                    setTimeout(toggleMode, 1500);
-                }}
-            }} else {{
-                const {{ data, error }} = await client.auth.signInWithPassword({{ email, password }});
-                if (error) {{
+                    msgEl.innerText = '注册成功！正在进入...';
+                    setTimeout(checkAuth, 1000);
+                }
+            } else {
+                const { data, error } = await client.auth.signInWithPassword({ email, password });
+                if (error) {
                     msgEl.style.color = '#ef4444';
                     msgEl.innerText = '登录失败: ' + error.message;
-                }} else {{
+                } else {
                     checkAuth();
-                }}
-            }}
-        }}
+                }
+            }
+        }
 
-        async function handleLogout() {{
+        async function handleLogout() {
             await client.auth.signOut();
             window.location.reload();
-        }}
+        }
+
+        async function loadData(customStart = "", customEnd = "") {
+            if (!currentUser) return;
+            let url = `/api/dashboard_data?user_id=${currentUser.id}&time_range=${currentTimeRange}`;
+            if (customStart && customEnd) {
+                url += `&custom_start=${customStart}&custom_end=${customEnd}`;
+            }
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            document.getElementById('statTotalSent').innerText = data.total_sent;
+            document.getElementById('statTotalOpened').innerText = data.total_opened;
+            document.getElementById('statRate').innerText = data.rate;
+
+            const tbody = document.getElementById('tableBody');
+            if (!data.rows || data.rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 40px; color: #94a3b8;">暂无发信记录</td></tr>';
+                return;
+            }
+
+            let html = '';
+            for (let r of data.rows) {
+                const emailId = r.id;
+                const itemLogs = data.logs_map[emailId] || [];
+                const logCount = itemLogs.length > 0 ? itemLogs.length : (r.open_count || 0);
+
+                let badgeClass = 'badge-unread';
+                if (r.status === '已读') badgeClass = 'badge-read';
+                else if (r.status === '误扫') badgeClass = 'badge-scan';
+
+                let timelineItems = '';
+                itemLogs.forEach((l, idx) => {
+                    const tag = l.is_scanner ? '<span style="color:#eab308; font-size:11px; margin-left:4px;">(系统扫)</span>' : '';
+                    timelineItems += `
+                    <div id="log-row-${l.log_id}" style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:12px; border-bottom:1px dashed #f1f5f9;">
+                        <span>#${idx+1} ${l.open_time}${tag}</span>
+                        <a href="javascript:void(0)" onclick="deleteLog(${l.log_id}, '${emailId}')" style="color:#ef4444; text-decoration:none; margin-left:12px; font-size:11px;">删除</a>
+                    </div>`;
+                });
+
+                let timelineHtml = '';
+                if (logCount > 0) {
+                    timelineHtml = `
+                    <span id="log-count-btn-${emailId}" style="font-size:11px; color:#2563eb; cursor:pointer; margin-left:6px; user-select:none;" onclick="toggleLogs(event, '${emailId}')">
+                        (共${logCount}次 ▾)
+                    </span>
+                    <div id="logs-${emailId}" class="popup-panel" style="display:none; position:absolute; z-index:100; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 20px rgba(0,0,0,0.12); padding:12px 14px; width:280px; margin-top:4px;">
+                        <div style="font-weight:600; font-size:12px; margin-bottom:8px; color:#0f172a; border-bottom:1px solid #f1f5f9; padding-bottom:4px;">打开时间轴流水</div>
+                        <div id="log-list-${emailId}">
+                            ${timelineItems || '<div style="font-size:12px; color:#94a3b8;">暂无流水明细</div>'}
+                        </div>
+                    </div>`;
+                }
+
+                const subj = r.subject || '无主题';
+                const recipient = (r.recipient && r.recipient !== '-') ? `<div style="font-size: 12px; color: #64748b; margin-top: 4px; font-weight: normal;">👤 ${r.recipient}</div>` : '';
+
+                html += `
+                <tr style="border-bottom: 1px solid #f1f5f9; height: 56px;">
+                    <td style="padding: 12px 16px; color: #0f172a; font-weight: 500;">
+                        <div>${subj}</div>
+                        ${recipient}
+                    </td>
+                    <td style="padding: 12px 16px; color: #64748b; font-size: 13px;">${r.send_time}</td>
+                    <td style="padding: 12px 16px;">
+                        <div style="position:relative; display:inline-block;">
+                            <button id="btn-${emailId}" onclick="toggleMenu(event, '${emailId}')" class="status-btn ${badgeClass}">
+                                <span id="txt-${emailId}">${r.status} (${logCount}次)</span> ▾
+                            </button>
+                            <div id="menu-${emailId}" class="popup-panel menu-box" style="display:none; position:absolute; z-index:100; left:0; margin-top:4px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 20px rgba(0,0,0,0.12); width:110px; overflow:hidden;">
+                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '已读', ${logCount})" style="color:#15803d;">标为已读</div>
+                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '误扫', ${logCount})" style="color:#a16207; border-top:1px solid #f8fafc;">标为误扫</div>
+                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '未读', ${logCount})" style="color:#64748b; border-top:1px solid #f8fafc;">标为未读</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td style="padding: 12px 16px; color: #475569; font-size: 13px; position:relative;">
+                        <span id="first-time-${emailId}">${r.first_open_time}</span>${timelineHtml}
+                    </td>
+                </tr>`;
+            }
+            tbody.innerHTML = html;
+        }
+
+        function switchTab(range) {
+            currentTimeRange = range;
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.range === range);
+            });
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            loadData();
+        }
+
+        function applyCustomDate() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            if (!start || !end) {
+                alert("请选择起止日期");
+                return;
+            }
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            loadData(start, end);
+        }
 
         window.addEventListener('DOMContentLoaded', checkAuth);
 
-        document.addEventListener('click', function() {{
-            document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
-        }});
+        document.addEventListener('click', function() {
+            document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
+        });
 
-        function toggleMenu(e, id) {{
+        function toggleMenu(e, id) {
             e.stopPropagation();
-            var menu = document.getElementById('menu-' + id);
-            var isShown = menu.style.display === 'block';
-            document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
+            const menu = document.getElementById('menu-' + id);
+            const isShown = menu.style.display === 'block';
+            document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
             menu.style.display = isShown ? 'none' : 'block';
-        }}
+        }
 
-        function toggleLogs(e, id) {{
+        function toggleLogs(e, id) {
             e.stopPropagation();
-            var panel = document.getElementById('logs-' + id);
-            var isShown = panel.style.display === 'block';
-            document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
+            const panel = document.getElementById('logs-' + id);
+            const isShown = panel.style.display === 'block';
+            document.querySelectorAll('.popup-panel').forEach(p => p.style.display = 'none');
             panel.style.display = isShown ? 'none' : 'block';
-        }}
+        }
 
-        function setStatus(e, id, newStatus, count) {{
+        function setStatus(e, id, newStatus, count) {
             e.stopPropagation();
             document.getElementById('menu-' + id).style.display = 'none';
 
-            var btn = document.getElementById('btn-' + id);
-            var txt = document.getElementById('txt-' + id);
-            txt.innerText = newStatus + ' (' + count + '次)';
+            const btn = document.getElementById('btn-' + id);
+            const txt = document.getElementById('txt-' + id);
+            txt.innerText = `${newStatus} (${count}次)`;
 
-            var cls = 'status-btn ';
+            let cls = 'status-btn ';
             if (newStatus === '已读') cls += 'badge-read';
             else if (newStatus === '误扫') cls += 'badge-scan';
             else cls += 'badge-unread';
             btn.className = cls;
 
-            fetch('/api/update_status', {{
+            fetch('/api/update_status', {
                 method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ id: id, status: newStatus }})
-            }});
-        }}
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, status: newStatus })
+            });
+        }
 
-        function deleteLog(logId, emailId) {{
+        function deleteLog(logId, emailId) {
             if (!confirm("确定删除这条打开记录吗？")) return;
             
-            fetch('/api/logs/' + logId, {{ method: 'DELETE' }})
-                .then(function(res) {{ return res.json(); }})
-                .then(function(data) {{
-                    if (data.status === 'ok') {{
-                        var row = document.getElementById('log-row-' + logId);
+            fetch('/api/logs/' + logId, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        const row = document.getElementById('log-row-' + logId);
                         if (row) row.remove();
 
-                        var txt = document.getElementById('txt-' + emailId);
-                        if (txt) {{
-                            var curStatus = txt.innerText.split(' ')[0];
-                            txt.innerText = curStatus + ' (' + data.new_count + '次)';
-                        }}
+                        const txt = document.getElementById('txt-' + emailId);
+                        if (txt) {
+                            const curStatus = txt.innerText.split(' ')[0];
+                            txt.innerText = `${curStatus} (${data.new_count}次)`;
+                        }
 
-                        var ft = document.getElementById('first-time-' + emailId);
+                        const ft = document.getElementById('first-time-' + emailId);
                         if (ft) ft.innerText = data.new_first_time;
                         
-                        var countBtn = document.getElementById('log-count-btn-' + emailId);
-                        if (countBtn) {{
-                            if (data.new_count > 0) {{
-                                countBtn.innerText = '(共' + data.new_count + '次 ▾)';
-                            }} else {{
+                        const countBtn = document.getElementById('log-count-btn-' + emailId);
+                        if (countBtn) {
+                            if (data.new_count > 0) {
+                                countBtn.innerText = `(共${data.new_count}次 ▾)`;
+                            } else {
                                 countBtn.style.display = 'none';
-                            }}
-                        }}
-                    }}
-                }});
-        }}
-
-        function applyCustomDate() {{
-            var start = document.getElementById('startDate').value;
-            var end = document.getElementById('endDate').value;
-            if (!start || !end) {{
-                alert("请选择起止日期");
-                return;
-            }}
-            window.location.href = '/dashboard?custom_start=' + start + '&custom_end=' + end;
-        }}
+                            }
+                        }
+                    }
+                });
+        }
     </script>
 </head>
 <body>
-    <!-- 登录 / 注册 浮层面板 -->
     <div id="authOverlay">
         <div class="auth-card">
             <h2 id="authTitle">登录系统</h2>
@@ -536,7 +558,6 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
         </div>
     </div>
 
-    <!-- 核心业务大盘 (登录后解锁显示) -->
     <div class="container" id="mainContainer">
         <div class="header-box">
             <div class="header">📧 达人邮件追踪大盘</div>
@@ -547,32 +568,32 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
         </div>
         <div class="nav-bar">
             <div class="tabs">
-                <a href="/dashboard?time_range=all" class="tab-btn" style="{tab_all}">全部</a>
-                <a href="/dashboard?time_range=today" class="tab-btn" style="{tab_today}">今天</a>
-                <a href="/dashboard?time_range=yesterday" class="tab-btn" style="{tab_yesterday}">昨天</a>
-                <a href="/dashboard?time_range=week" class="tab-btn" style="{tab_week}">7天</a>
-                <a href="/dashboard?time_range=month" class="tab-btn" style="{tab_month}">30天</a>
-                <a href="/dashboard?time_range=quarter" class="tab-btn" style="{tab_quarter}">90天</a>
+                <button class="tab-btn active" data-range="all" onclick="switchTab('all')">全部</button>
+                <button class="tab-btn" data-range="today" onclick="switchTab('today')">今天</button>
+                <button class="tab-btn" data-range="yesterday" onclick="switchTab('yesterday')">昨天</button>
+                <button class="tab-btn" data-range="week" onclick="switchTab('week')">7天</button>
+                <button class="tab-btn" data-range="month" onclick="switchTab('month')">30天</button>
+                <button class="tab-btn" data-range="quarter" onclick="switchTab('quarter')">90天</button>
             </div>
             <div class="custom-picker">
-                <input type="date" id="startDate" value="{custom_start}">
+                <input type="date" id="startDate">
                 <span>至</span>
-                <input type="date" id="endDate" value="{custom_end}">
+                <input type="date" id="endDate">
                 <button onclick="applyCustomDate()">筛选历史</button>
             </div>
         </div>
         <div class="cards">
             <div class="card">
                 <div class="card-title">总发信量</div>
-                <div class="card-value">{total_sent}</div>
+                <div class="card-value" id="statTotalSent">0</div>
             </div>
             <div class="card">
                 <div class="card-title">真人有效打开数</div>
-                <div class="card-value" style="color: #16a34a;">{total_opened}</div>
+                <div class="card-value" id="statTotalOpened" style="color: #16a34a;">0</div>
             </div>
             <div class="card">
                 <div class="card-title">真实打开率</div>
-                <div class="card-value" style="color: #2563eb;">{rate}</div>
+                <div class="card-value" id="statRate" style="color: #2563eb;">0.0%</div>
             </div>
         </div>
         <div class="table-container">
@@ -586,8 +607,8 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
                         <th style="width: 20%;">首次打开 (流水)</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {rows_html}
+                <tbody id="tableBody">
+                    <tr><td colspan="4" style="text-align:center; padding: 40px; color: #94a3b8;">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
