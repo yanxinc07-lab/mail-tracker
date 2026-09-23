@@ -1,8 +1,10 @@
 import os
+import io
+import zipfile
 import base64
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Response, Request, Header
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Response, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
@@ -10,7 +12,6 @@ from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
 
-# 允许跨域
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -65,6 +66,266 @@ except Exception as e:
 PIXEL_GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 PIXEL_DATA = base64.b64decode(PIXEL_GIF_BASE64)
 
+# 动态打包插件下载接口
+@app.get("/api/download_extension")
+def download_extension():
+    manifest_code = """{
+  "manifest_version": 3,
+  "name": "达人邮件追踪助手",
+  "version": "1.0",
+  "description": "Gmail 达人发信打开率智能追踪系统",
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}"""
+
+    popup_html_code = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 280px;
+      padding: 16px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #334155;
+    }
+    h3 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .input-box {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    .btn {
+      width: 100%;
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 8px 0;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .status-panel { display: none; }
+    .user-tag {
+      background: #e0f2fe;
+      color: #0284c7;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 12px;
+      word-break: break-all;
+    }
+    .logout-btn {
+      background: #f1f5f9;
+      color: #ef4444;
+      border: 1px solid #cbd5e1;
+      margin-top: 8px;
+    }
+    .msg {
+      font-size: 12px;
+      margin-top: 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h3>📧 达人追踪助手</h3>
+
+  <div id="loginView">
+    <input type="email" id="emailInput" class="input-box" placeholder="输入大盘注册邮箱" />
+    <input type="password" id="pwdInput" class="input-box" placeholder="输入密码" />
+    <button id="loginBtn" class="btn">登 录 激 活</button>
+    <div id="msgBox" class="msg"></div>
+  </div>
+
+  <div id="userView" class="status-panel">
+    <div class="user-tag">
+      <div>已连接账号：</div>
+      <b id="displayEmail">-</b>
+    </div>
+    <button id="openDashBtn" class="btn">打开我的追踪大盘</button>
+    <button id="logoutBtn" class="btn logout-btn">切换 / 退出账号</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>"""
+
+    popup_js_code = """const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZXFocXVvcmp5Y2pkeGJ1cnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTY5MjUsImV4cCI6MjEwNTE5MjkyNX0.JzTkH-xoiExeSxHGu420PgVfUNV_Jp_zZoJQn3yqY2g";
+
+chrome.storage.local.get(["userId", "userEmail"], function (res) {
+  if (res.userId && res.userEmail) {
+    showUserView(res.userEmail);
+  } else {
+    showLoginView();
+  }
+});
+
+function showUserView(email) {
+  document.getElementById("loginView").style.display = "none";
+  document.getElementById("userView").style.display = "block";
+  document.getElementById("displayEmail").innerText = email;
+}
+
+function showLoginView() {
+  document.getElementById("loginView").style.display = "block";
+  document.getElementById("userView").style.display = "none";
+  document.getElementById("emailInput").value = "";
+  document.getElementById("pwdInput").value = "";
+  document.getElementById("msgBox").innerText = "";
+}
+
+document.getElementById("loginBtn").addEventListener("click", async function () {
+  const email = document.getElementById("emailInput").value.trim();
+  const password = document.getElementById("pwdInput").value;
+  const msgBox = document.getElementById("msgBox");
+
+  if (!email || !password) {
+    msgBox.style.color = "#ef4444";
+    msgBox.innerText = "请填写邮箱和密码";
+    return;
+  }
+
+  msgBox.style.color = "#2563eb";
+  msgBox.innerText = "正在验证...";
+
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      msgBox.style.color = "#ef4444";
+      msgBox.innerText = "登录失败: " + (data.error_description || data.msg || "密码错误");
+      return;
+    }
+
+    const userId = data.user.id;
+    const userEmail = data.user.email;
+
+    chrome.storage.local.set({ userId: userId, userEmail: userEmail }, function () {
+      showUserView(userEmail);
+    });
+  } catch (err) {
+    msgBox.style.color = "#ef4444";
+    msgBox.innerText = "网络请求失败，请稍后重试";
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", function () {
+  chrome.storage.local.remove(["userId", "userEmail"], function () {
+    showLoginView();
+  });
+});
+
+document.getElementById("openDashBtn").addEventListener("click", function () {
+  chrome.tabs.create({ url: "https://mail-tracker-e7da.onrender.com/dashboard" });
+});"""
+
+    content_js_code = """document.addEventListener("click", function (e) {
+  const sendBtn = e.target.closest('div[role="button"][data-tooltip*="发送"], div[role="button"][data-tooltip*="Send"], div[aria-label*="Send"], div[aria-label*="发送"]');
+  if (!sendBtn) return;
+
+  const composeBox = sendBtn.closest('div[role="region"], div[aria-label*="写信"], div[aria-label*="Compose"]') || document.body;
+
+  let recipientEmail = "-";
+  const emailChips = composeBox.querySelectorAll('[email]');
+  if (emailChips.length > 0) {
+    const list = Array.from(emailChips).map(el => el.getAttribute('email')).filter(Boolean);
+    if (list.length > 0) recipientEmail = list.join(", ");
+  }
+  
+  if (recipientEmail === "-") {
+    const hiddenTo = composeBox.querySelector('input[name="to"]');
+    if (hiddenTo && hiddenTo.value) recipientEmail = hiddenTo.value;
+  }
+
+  const subjectInput = composeBox.querySelector('input[name="subjectbox"]');
+  const subject = subjectInput ? (subjectInput.value.trim() || "无主题邮件") : "无主题邮件";
+
+  const trackId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+
+  const editableBody = composeBox.querySelector('div[aria-label*="邮件正文"], div[aria-label*="Message Body"], div[role="textbox"]');
+  if (editableBody) {
+    const img = document.createElement("img");
+    img.src = `https://mail-tracker-e7da.onrender.com/t/${trackId}.png`;
+    img.width = 1;
+    img.height = 1;
+    img.style.display = "none";
+    editableBody.appendChild(img);
+  }
+
+  chrome.storage.local.get(["userId"], function (res) {
+    const currentUserId = res.userId || null;
+
+    fetch('https://mail-tracker-e7da.onrender.com/api/register', {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: trackId,
+        recipient: recipientEmail,
+        subject: subject,
+        user_id: currentUserId
+      })
+    }).catch(err => console.error("Register err:", err));
+  });
+
+}, true);"""
+
+    # 动态在内存中打包 zip
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr("mail-tracker-extension/manifest.json", manifest_code)
+        zip_file.writestr("mail-tracker-extension/popup.html", popup_html_code)
+        zip_file.writestr("mail-tracker-extension/popup.js", popup_js_code)
+        zip_file.writestr("mail-tracker-extension/content.js", content_js_code)
+    
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=mail-tracker-extension.zip"}
+    )
+
 class RegisterRequest(BaseModel):
     id: str
     recipient: str = "-"
@@ -106,7 +367,6 @@ def track_pixel(track_id: str, request: Request):
         send_dt = datetime.strptime(row["send_time"], "%Y-%m-%d %H:%M:%S")
         diff_seconds = (now - send_dt).total_seconds()
         
-        # 30秒静默丢弃
         if diff_seconds < 30:
             cur.close()
             conn.close()
@@ -183,7 +443,6 @@ def delete_log(log_id: int):
     conn.close()
     return {"status": "ok", "new_count": new_count, "new_first_time": new_first_time}
 
-# 数据拉取 API：严格按 user_id 进行逻辑隔离
 @app.get("/api/dashboard_data")
 def get_dashboard_data(time_range: str = "all", custom_start: str = "", custom_end: str = "", user_id: str = ""):
     if not user_id:
@@ -259,6 +518,8 @@ def get_dashboard():
         .header { font-size: 24px; font-weight: bold; color: #0f172a; }
         .user-info { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 12px; }
         .logout-btn { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; color: #ef4444; font-size: 12px; }
+        .download-btn { background: #10b981; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+        .download-btn:hover { background: #059669; }
         .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
         .tabs { display: flex; gap: 8px; }
         .tab-btn { text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; cursor: pointer; background: #fff; color: #475569; border: 1px solid #cbd5e1; }
@@ -284,12 +545,13 @@ def get_dashboard():
         #authOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f8fafc; display: flex; justify-content: center; align-items: center; z-index: 9999; }
         .auth-card { background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; width: 340px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
         .auth-card h2 { margin: 0 0 8px 0; font-size: 20px; color: #0f172a; text-align: center; }
-        .auth-card p { margin: 0 0 24px 0; font-size: 13px; color: #64748b; text-align: center; }
+        .auth-card p { margin: 0 0 20px 0; font-size: 13px; color: #64748b; text-align: center; }
         .auth-input { width: 100%; box-sizing: border-box; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 14px; font-size: 14px; outline: none; }
         .auth-btn { width: 100%; background: #2563eb; color: white; border: none; padding: 10px 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
         .auth-toggle { margin-top: 16px; text-align: center; font-size: 12px; color: #64748b; }
         .auth-toggle a { color: #2563eb; text-decoration: none; cursor: pointer; font-weight: 600; }
         #authMsg { font-size: 12px; margin-top: 10px; text-align: center; }
+        .ext-download-box { margin-top: 24px; padding-top: 20px; border-top: 1px dashed #e2e8f0; text-align: center; }
     </style>
     <script>
         const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
@@ -555,6 +817,11 @@ def get_dashboard():
                 <span id="modeText">还没有账号？</span>
                 <a id="modeBtn" onclick="toggleMode()">立即注册</a>
             </div>
+            <div class="ext-download-box">
+                <a href="/api/download_extension" class="download-btn" style="width:100%; justify-content:center; box-sizing:border-box; padding:10px 0;">
+                    📥 下载 Chrome / Edge 插件
+                </a>
+            </div>
         </div>
     </div>
 
@@ -562,6 +829,7 @@ def get_dashboard():
         <div class="header-box">
             <div class="header">📧 达人邮件追踪大盘</div>
             <div class="user-info">
+                <a href="/api/download_extension" class="download-btn">📥 下载插件包</a>
                 <span>当前账号: <b id="userEmailText" style="color: #0f172a;">-</b></span>
                 <button class="logout-btn" onclick="handleLogout()">退出</button>
             </div>
