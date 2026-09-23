@@ -254,11 +254,10 @@ document.getElementById("openDashBtn").addEventListener("click", function () {
   chrome.tabs.create({ url: "https://mail-tracker-e7da.onrender.com/dashboard" });
 });"""
 
-    content_js_code = """document.addEventListener("click", function (e) {
-  const sendBtn = e.target.closest('div[role="button"][data-tooltip*="发送"], div[role="button"][data-tooltip*="Send"], div[aria-label*="Send"], div[aria-label*="发送"]');
-  if (!sendBtn) return;
-
-  const composeBox = sendBtn.closest('div[role="region"], div[aria-label*="写信"], div[aria-label*="Compose"]') || document.body;
+    content_js_code = """function triggerTrack(composeBox) {
+  if (!composeBox || composeBox.__tracked_sending) return;
+  composeBox.__tracked_sending = true;
+  setTimeout(() => { composeBox.__tracked_sending = false; }, 2000);
 
   let recipientEmail = "-";
   const emailChips = composeBox.querySelectorAll('[email]');
@@ -305,7 +304,21 @@ document.getElementById("openDashBtn").addEventListener("click", function () {
       })
     }).catch(err => console.error("Register err:", err));
   });
+}
 
+document.addEventListener("click", function (e) {
+  const sendBtn = e.target.closest('div[role="button"][data-tooltip*="发送"], div[role="button"][data-tooltip*="Send"], div[aria-label*="Send"], div[aria-label*="发送"]');
+  if (!sendBtn) return;
+  const composeBox = sendBtn.closest('div[role="region"], div[aria-label*="写信"], div[aria-label*="Compose"]') || document.body;
+  triggerTrack(composeBox);
+}, true);
+
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    const activeEl = document.activeElement;
+    const composeBox = activeEl ? (activeEl.closest('div[role="region"], div[aria-label*="写信"], div[aria-label*="Compose"]') || document.body) : document.body;
+    triggerTrack(composeBox);
+  }
 }, true);"""
 
     # 动态在内存中打包 zip (平级解压，杜绝套娃)
