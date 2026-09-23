@@ -41,7 +41,8 @@ def init_db():
             send_time TEXT,
             status TEXT,
             open_count INTEGER DEFAULT 0,
-            first_open_time TEXT
+            first_open_time TEXT,
+            user_id TEXT
         );
     """)
     cur.execute("""
@@ -68,6 +69,7 @@ class RegisterRequest(BaseModel):
     id: str
     recipient: str = "-"
     subject: str = ""
+    user_id: str = None
 
 @app.post("/api/register")
 def register_mail(req: RegisterRequest):
@@ -75,10 +77,10 @@ def register_mail(req: RegisterRequest):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time)
-        VALUES (%s, %s, %s, %s, '未读', 0, '-')
+        INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time, user_id)
+        VALUES (%s, %s, %s, %s, '未读', 0, '-', %s)
         ON CONFLICT (id) DO NOTHING;
-    """, (req.id, req.recipient, req.subject, now_str))
+    """, (req.id, req.recipient, req.subject, now_str, req.user_id))
     conn.commit()
     cur.close()
     conn.close()
@@ -325,10 +327,15 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
 <head>
     <meta charset="utf-8">
     <title>达人邮件追踪大盘</title>
+    <!-- 引入 Supabase 官方标准 JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; margin: 0; padding: 40px; color: #334155; }}
-        .container {{ max-width: 1000px; margin: 0 auto; }}
-        .header {{ font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #0f172a; }}
+        .container {{ max-width: 1000px; margin: 0 auto; display: none; }}
+        .header-box {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }}
+        .header {{ font-size: 24px; font-weight: bold; color: #0f172a; }}
+        .user-info {{ font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 12px; }}
+        .logout-btn {{ background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; cursor: pointer; color: #ef4444; font-size: 12px; }}
         .nav-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }}
         .tabs {{ display: flex; gap: 8px; }}
         .tab-btn {{ text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; transition: 0.1s; }}
@@ -349,8 +356,86 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
         .badge-unread {{ background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }}
         .menu-item {{ padding: 9px 14px; font-size: 12px; cursor: pointer; transition: background 0.1s; user-select: none; }}
         .menu-item:hover {{ background: #f8fafc; font-weight: 600; }}
+
+        /* 登录遮罩层与卡片样式 */
+        #authOverlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f8fafc; display: flex; justify-content: center; align-items: center; z-index: 9999; }}
+        .auth-card {{ background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; width: 340px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
+        .auth-card h2 {{ margin: 0 0 8px 0; font-size: 20px; color: #0f172a; text-align: center; }}
+        .auth-card p {{ margin: 0 0 24px 0; font-size: 13px; color: #64748b; text-align: center; }}
+        .auth-input {{ width: 100%; box-sizing: border-box; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 14px; font-size: 14px; outline: none; }}
+        .auth-btn {{ width: 100%; background: #2563eb; color: white; border: none; padding: 10px 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }}
+        .auth-toggle {{ margin-top: 16px; text-align: center; font-size: 12px; color: #64748b; }}
+        .auth-toggle a {{ color: #2563eb; text-decoration: none; cursor: pointer; font-weight: 600; }}
+        #authMsg {{ font-size: 12px; margin-top: 10px; text-align: center; }}
     </style>
     <script>
+        const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZXFocXVvcmp5Y2pkeGJ1cnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTY5MjUsImV4cCI6MjEwNTE5MjkyNX0.JzTkH-xoiExeSxHGu420PgVfUNV_Jp_zZoJQn3yqY2g";
+        const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let isRegisterMode = false;
+
+        async function checkAuth() {{
+            const {{ data: {{ session }} }} = await client.auth.getSession();
+            if (session && session.user) {{
+                document.getElementById('authOverlay').style.display = 'none';
+                document.getElementById('mainContainer').style.display = 'block';
+                document.getElementById('userEmailText').innerText = session.user.email;
+            }} else {{
+                document.getElementById('authOverlay').style.display = 'flex';
+                document.getElementById('mainContainer').style.display = 'none';
+            }}
+        }}
+
+        function toggleMode() {{
+            isRegisterMode = !isRegisterMode;
+            document.getElementById('authTitle').innerText = isRegisterMode ? '注册新账号' : '登录系统';
+            document.getElementById('authBtn').innerText = isRegisterMode ? '立即注册' : '登 录';
+            document.getElementById('modeText').innerText = isRegisterMode ? '已有账号？' : '还没有账号？';
+            document.getElementById('modeBtn').innerText = isRegisterMode ? '去登录' : '立即注册';
+            document.getElementById('authMsg').innerText = '';
+        }}
+
+        async function handleAuth() {{
+            const email = document.getElementById('authEmail').value.trim();
+            const password = document.getElementById('authPassword').value;
+            const msgEl = document.getElementById('authMsg');
+            if (!email || !password) {{
+                msgEl.style.color = '#ef4444';
+                msgEl.innerText = '请填写邮箱和密码';
+                return;
+            }}
+            msgEl.style.color = '#2563eb';
+            msgEl.innerText = isRegisterMode ? '正在注册...' : '正在登录...';
+
+            if (isRegisterMode) {{
+                const {{ data, error }} = await client.auth.signUp({{ email, password }});
+                if (error) {{
+                    msgEl.style.color = '#ef4444';
+                    msgEl.innerText = error.message;
+                }} else {{
+                    msgEl.style.color = '#16a34a';
+                    msgEl.innerText = '注册成功！请查收验证邮件或直接登录';
+                    setTimeout(toggleMode, 1500);
+                }}
+            }} else {{
+                const {{ data, error }} = await client.auth.signInWithPassword({{ email, password }});
+                if (error) {{
+                    msgEl.style.color = '#ef4444';
+                    msgEl.innerText = '登录失败: ' + error.message;
+                }} else {{
+                    checkAuth();
+                }}
+            }}
+        }}
+
+        async function handleLogout() {{
+            await client.auth.signOut();
+            window.location.reload();
+        }}
+
+        window.addEventListener('DOMContentLoaded', checkAuth);
+
         document.addEventListener('click', function() {{
             document.querySelectorAll('.popup-panel').forEach(function(p) {{ p.style.display = 'none'; }});
         }});
@@ -435,8 +520,31 @@ def get_dashboard(time_range: str = "all", custom_start: str = "", custom_end: s
     </script>
 </head>
 <body>
-    <div class="container">
-        <div class="header">📧 达人邮件追踪大盘</div>
+    <!-- 登录 / 注册 浮层面板 -->
+    <div id="authOverlay">
+        <div class="auth-card">
+            <h2 id="authTitle">登录系统</h2>
+            <p>达人邮件追踪商业看板</p>
+            <input type="email" id="authEmail" class="auth-input" placeholder="请输入你的邮箱地址" />
+            <input type="password" id="authPassword" class="auth-input" placeholder="请输入密码 (至少6位)" />
+            <button id="authBtn" class="auth-btn" onclick="handleAuth()">登 录</button>
+            <div id="authMsg"></div>
+            <div class="auth-toggle">
+                <span id="modeText">还没有账号？</span>
+                <a id="modeBtn" onclick="toggleMode()">立即注册</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心业务大盘 (登录后解锁显示) -->
+    <div class="container" id="mainContainer">
+        <div class="header-box">
+            <div class="header">📧 达人邮件追踪大盘</div>
+            <div class="user-info">
+                <span>当前账号: <b id="userEmailText" style="color: #0f172a;">-</b></span>
+                <button class="logout-btn" onclick="handleLogout()">退出</button>
+            </div>
+        </div>
         <div class="nav-bar">
             <div class="tabs">
                 <a href="/dashboard?time_range=all" class="tab-btn" style="{tab_all}">全部</a>
