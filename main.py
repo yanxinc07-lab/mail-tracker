@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -19,10 +20,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.api_route("/", methods=["GET", "HEAD"])
-def index():
-    return RedirectResponse(url="/dashboard")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -311,7 +308,6 @@ document.getElementById("openDashBtn").addEventListener("click", function () {
 
 }, true);"""
 
-    # 动态在内存中打包 zip
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         zip_file.writestr("mail-tracker-extension/manifest.json", manifest_code)
@@ -325,6 +321,99 @@ document.getElementById("openDashBtn").addEventListener("click", function () {
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=mail-tracker-extension.zip"}
     )
+
+# 商业落地首页路由 (根目录 /)
+@app.get("/", response_class=HTMLResponse)
+def landing_page():
+    html = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MailTracker - 专为跨境与达人营销打造的 Gmail 追踪系统</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #fafafa; color: #1e293b; line-height: 1.5; }
+    .nav { max-width: 1100px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 24px 20px; }
+    .brand { font-size: 20px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .nav-links { display: flex; gap: 16px; align-items: center; }
+    .nav-btn { text-decoration: none; font-size: 14px; font-weight: 600; padding: 8px 18px; border-radius: 8px; transition: 0.2s; }
+    .nav-btn-text { color: #475569; }
+    .nav-btn-text:hover { color: #0f172a; }
+    .nav-btn-primary { background: #2563eb; color: #fff; }
+    .nav-btn-primary:hover { background: #1d4ed8; }
+
+    .hero { max-width: 900px; margin: 60px auto 40px; text-align: center; padding: 0 20px; }
+    .tag { display: inline-block; background: #eff6ff; color: #2563eb; font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 20px; margin-bottom: 20px; border: 1px solid #dbeafe; }
+    .hero h1 { font-size: 46px; font-weight: 800; color: #0f172a; line-height: 1.25; margin-bottom: 20px; letter-spacing: -0.02em; }
+    .hero p { font-size: 18px; color: #64748b; margin-bottom: 36px; max-width: 680px; margin-left: auto; margin-right: auto; }
+    .hero-actions { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+    .btn-main { text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 28px; border-radius: 10px; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-download { background: #10b981; color: white; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35); }
+    .btn-download:hover { background: #059669; }
+    .btn-dash { background: #0f172a; color: white; }
+    .btn-dash:hover { background: #334155; }
+
+    .features { max-width: 1080px; margin: 80px auto 100px; padding: 0 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+    .f-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .f-icon { font-size: 28px; margin-bottom: 14px; }
+    .f-card h3 { font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 10px; }
+    .f-card p { font-size: 14px; color: #64748b; line-height: 1.6; }
+
+    .footer { text-align: center; padding: 40px 20px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/" class="brand">📧 MailTracker</a>
+    <div class="nav-links">
+      <a href="/api/download_extension" class="nav-btn nav-btn-text">📥 下载插件</a>
+      <a href="/dashboard" class="nav-btn nav-btn-primary">进入控制台</a>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="tag">🚀 专为 TikTok / Ins 达人建联打造</div>
+    <h1>让发出的每一封达人邮件，<br>都有迹可循</h1>
+    <p>无感嵌入 Gmail，毫秒级捕获达人阅读行为。内置智能过滤安全扫描机制，为你呈现最真实纯粹的商务打开率看板。</p>
+    <div class="hero-actions">
+      <a href="/api/download_extension" class="btn-main btn-download">📥 免费下载浏览器插件 (v1.0)</a>
+      <a href="/dashboard" class="btn-main btn-dash">进入数据大盘 →</a>
+    </div>
+  </div>
+
+  <div class="features">
+    <div class="f-card">
+      <div class="f-icon">🎯</div>
+      <h3>1像素无感隐形追踪</h3>
+      <p>自动穿透 Gmail 折叠头像气泡与原生表单，发信时智能植入透明像素，收件人完全无感知，送达率不受任何影响。</p>
+    </div>
+    <div class="f-card">
+      <div class="f-icon">🛡️</div>
+      <h3>30秒防误扫过滤</h3>
+      <p>智能识别并隔离邮箱服务商后台的安全杀毒扫描，支持邮件时间轴明细流水展开，确保看板呈现 100% 真人打开数据。</p>
+    </div>
+    <div class="f-card">
+      <div class="f-icon">👥</div>
+      <h3>多租户物理级数据隔离</h3>
+      <p>采用工业级云端架构，团队多人同时使用，各自数据独立沙盒存储，支持 7天/30天/自定义周期转化率分析。</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    © 2026 MailTracker. 专为高效商务沟通赋能.
+  </div>
+</body>
+</html>
+"""
+    return html
+
+# 404 全局防呆捕获：无论是输错网址还是后缀，统一优雅回退到官网，绝不吐 JSON 报错
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404:
+        return RedirectResponse(url="/")
+    return Response(content=str(exc.detail), status_code=exc.status_code)
 
 class RegisterRequest(BaseModel):
     id: str
