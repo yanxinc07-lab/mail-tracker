@@ -1,4 +1,254 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#020b19"><title>MailTracker — 看见每封邮件的下一步</title><meta name="description" content="专为跨境商务和达人营销设计的 Gmail 邮件追踪。掌握打开动态，抓准跟进时机。"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23020b19'/%3E%3Cpath d='M12 40 32 19l20 21-20 10Z' fill='none' stroke='%234bdcff' stroke-width='4'/%3E%3Ccircle cx='32' cy='36' r='6' fill='%234bdcff'/%3E%3C/svg%3E"><style>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#020b19">
+  <title>MailTracker — 看见每封邮件的下一步</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #020b19;
+      color: #effaff;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; overflow-x: hidden; position: relative; }
+    button, a { font: inherit; }
+    a { text-decoration: none; color: inherit; }
 
-:root{color-scheme:dark;font-family:Inter,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#020914;color:#effaff}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden}button,a{font:inherit}a{text-decoration:none;color:inherit}.ocean{position:absolute;inset:0;overflow:hidden;pointer-events:none;background:radial-gradient(ellipse 70% 55% at 53% 32%,#0c6581 0%,#093e64 28%,#082541 55%,#020b1a 85%)}.ocean:before{content:"";position:absolute;inset:-20%;background:repeating-linear-gradient(106deg,transparent 0 8%,rgba(82,222,246,.045) 9%,transparent 13% 24%);transform:skew(-12deg);filter:blur(10px);animation:sway 14s ease-in-out infinite alternate}.ocean:after{content:"";position:absolute;left:-20%;right:-20%;top:-15%;height:95%;background:radial-gradient(ellipse at 48% 0%,rgba(148,248,255,.32),transparent 46%);filter:blur(20px);animation:breathe 9s ease-in-out infinite alternate}.particles{position:absolute;inset:0;background-image:radial-gradient(#b0faff9c 1px,transparent 1px),radial-gradient(#78dcf97a 1px,transparent 1px);background-size:143px 117px,207px 173px;background-position:11px 37px,70px 29px;mask-image:linear-gradient(transparent,#000 25%,#000 70%,transparent);animation:drift 24s linear infinite}.site{position:relative;min-height:100vh}.hero{position:relative;min-height:920px;overflow:hidden}.hero:after{content:"";position:absolute;inset:auto 0 0;height:280px;background:linear-gradient(transparent,#020b19);pointer-events:none}.wrap{width:min(1240px,calc(100% - 80px));margin:auto;position:relative;z-index:2}header{height:96px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #d5faff25}.brand{display:flex;align-items:center;gap:11px;font-size:23px;font-weight:800;letter-spacing:-.05em}.brand-mark{width:31px;height:31px;border:2px solid #80eaff;transform:rotate(45deg);border-radius:5px;display:grid;place-items:center;box-shadow:0 0 22px #37daff80}.brand-mark i{width:8px;height:8px;border-radius:50%;background:#c3ffff;box-shadow:0 0 12px #b8ffff;display:block}.nav{display:flex;gap:12px;align-items:center;font-size:14px;font-weight:700}.nav a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 18px;border-radius:100px;transition:transform .2s,background .2s}.nav a:hover{transform:translateY(-2px)}.nav .nav-primary{background:#a0f1ff;color:#032037;box-shadow:0 8px 28px #3bdaf64d}.nav .nav-glass{color:#e8fbff;border:1px solid #a0eaff61;background:#d4faff15;backdrop-filter:blur(18px)}.hero-content{padding-top:128px;max-width:720px}.eyebrow{display:flex;align-items:center;gap:12px;color:#8deeff;font-weight:700;letter-spacing:.23em;font-size:12px;text-transform:uppercase}.eyebrow:before{content:"";width:32px;height:1px;background:#70e8ff}.hero h1{font-size:clamp(52px,6.2vw,88px);line-height:1.17;letter-spacing:-.065em;margin:28px 0 23px;font-weight:800;text-shadow:0 8px 40px #001622a9}.hero h1 em{font-style:normal;color:#83eafb;text-shadow:0 0 35px #4be2ff7a}.lead{font-size:19px;line-height:1.85;color:#c2deeb;max-width:570px;margin:0}.actions{display:flex;align-items:center;gap:20px;margin-top:40px}.button{display:inline-flex;gap:12px;align-items:center;justify-content:center;border-radius:100px;padding:17px 25px;font-size:15px;font-weight:700;background:#a0f1ff;color:#032037;box-shadow:0 10px 38px #3bdaf65c;transition:transform .2s,box-shadow .2s}.button:hover{transform:translateY(-3px);box-shadow:0 16px 48px #3bdaf686}.button svg{width:18px;height:18px}.text-link{display:inline-flex;align-items:center;justify-content:center;padding:16px 23px;border:1px solid #a0eaff70;border-radius:100px;background:#d4faff12;backdrop-filter:blur(16px);font-weight:600;font-size:15px;color:#e8fbff;transition:transform .2s,background .2s}.text-link:hover{transform:translateY(-3px);background:#d4faff22}.subnote{margin-top:16px;color:#8eb4c5;font-size:12px}.depth{position:absolute;right:5%;top:170px;width:360px;height:490px;border:1px solid #a8faff33;border-radius:50%;transform:rotate(-19deg);box-shadow:0 0 0 55px #a8faff08,0 0 0 120px #a8faff04,inset 0 0 70px #61ebff20;opacity:.9}.depth:before{content:"";position:absolute;inset:18%;border:1px solid #bbfaff45;border-radius:50%;box-shadow:0 0 55px #8bf6ff3b}.depth:after{content:"";position:absolute;inset:42%;border-radius:50%;background:#9defff;filter:blur(35px);opacity:.4}.depth-line{position:absolute;right:2%;top:330px;width:32%;height:1px;background:linear-gradient(90deg,#a0faff66,transparent);transform:rotate(-19deg)}.coordinate{position:absolute;right:6%;top:735px;text-align:right;color:#84b7c9;font-size:11px;letter-spacing:.18em;line-height:2.1}.scroll{position:absolute;left:0;top:775px;display:flex;align-items:center;gap:18px;font-size:11px;letter-spacing:.18em;color:#91c0d0}.scroll:before{content:"";height:60px;width:1px;background:linear-gradient(#82efff,transparent)}.section{position:relative;background:#020b19}.metrics{margin-top:-115px;position:relative;z-index:4}.glass{background:linear-gradient(135deg,#c3faff18,#0b304653 45%,#061c2cba);border:1px solid #aceaff3d;box-shadow:inset 0 1px #e6ffff25,0 26px 90px #0009;backdrop-filter:blur(24px)}.dashboard{border-radius:26px;padding:27px;display:grid;grid-template-columns:1.35fr 1fr;gap:24px}.panel{border:1px solid #b2f4ff23;background:#03172894;border-radius:18px;padding:23px}.panel-head{display:flex;justify-content:space-between;align-items:center;color:#d7f4fb;font-weight:700;font-size:14px}.panel-head small{color:#68deee;font-weight:500;font-size:12px}.chart{height:180px;margin-top:24px;position:relative;background:repeating-linear-gradient(to bottom,transparent 0 43px,#a6ecff18 44px 45px)}.chart svg{width:100%;height:100%;overflow:visible}.chart-labels{display:flex;justify-content:space-between;color:#7599a8;font-size:11px;margin-top:10px}.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stat{border-radius:14px;background:#08283a8c;border:1px solid #b2f4ff20;padding:21px;min-height:111px}.stat span{display:block;color:#a5c6d4;font-size:12px}.stat strong{display:block;font-size:31px;letter-spacing:-.05em;margin-top:12px}.stat strong b{font-size:13px;color:#76e6ef;font-weight:500;margin-left:8px}.activity{grid-column:1/-1;background:#08283a8c;border:1px solid #b2f4ff20;border-radius:14px;padding:17px 20px;color:#d9f6fa;font-size:13px;display:flex;align-items:center;gap:12px}.pulse{width:8px;height:8px;border-radius:50%;background:#6bf0d9;box-shadow:0 0 0 6px #6bf0d921,0 0 18px #6bf0d9}.activity time{margin-left:auto;color:#7cabb8}.section-inner{padding:145px 0 130px}.section-tag{font-size:12px;letter-spacing:.22em;color:#69d8e9;font-weight:700}.section h2{font-size:clamp(34px,4vw,56px);line-height:1.25;letter-spacing:-.05em;margin:18px 0 16px}.section-intro{color:#a7c8d6;font-size:17px;line-height:1.8;margin:0 0 48px}.features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.feature{min-height:315px;border-radius:22px;padding:30px;transition:transform .25s,border-color .25s}.feature:hover{transform:translateY(-7px);border-color:#9ef4ff90}.feature .num{color:#6ad8e9;font-size:12px;letter-spacing:.18em}.feature-icon{height:93px;display:flex;align-items:center;color:#91f2ff}.feature-icon svg{width:60px;height:60px;stroke-width:1.2;filter:drop-shadow(0 0 15px #5feaff85)}.feature h3{font-size:22px;margin:9px 0 12px;letter-spacing:-.03em}.feature p{font-size:15px;line-height:1.85;color:#a9c9d5;margin:0}.closing{padding:100px 40px 105px;text-align:center;border-top:1px solid #a7edff21;background:radial-gradient(ellipse at 50% 20%,#0d4a63 0%,#052238 38%,#020b19 77%)}.closing h2{font-size:clamp(36px,4.5vw,62px);letter-spacing:-.06em;margin:17px 0}.closing p{color:#b4d4e0;line-height:1.8;font-size:17px;margin:0 auto 30px;max-width:620px}.footer{border-top:1px solid #9bdaef1c;display:flex;justify-content:space-between;align-items:center;padding:30px 0;color:#789aab;font-size:13px}.footer .brand{font-size:17px;color:#d6f4fa}.footer .brand-mark{width:23px;height:23px}.footer .brand-mark i{width:5px;height:5px}@keyframes sway{to{transform:translate(7%,5%) skew(-18deg)}}@keyframes breathe{to{opacity:.45;transform:translateY(8%)}}@keyframes drift{to{background-position:11px 237px,70px 202px}}@media(max-width:850px){.wrap{width:min(100% - 38px,640px)}header{height:76px}.nav{gap:7px}.nav a{padding:9px 12px;font-size:12px;min-height:38px}.brand{font-size:20px}.hero{min-height:840px}.hero-content{padding-top:118px}.hero h1{font-size:clamp(48px,10vw,70px)}.depth{right:-180px;top:220px;opacity:.55}.lead{font-size:17px}.coordinate{display:none}.scroll{top:725px}.dashboard{grid-template-columns:1fr}.features{grid-template-columns:1fr}.feature{min-height:255px}.section-inner{padding:105px 0}.footer{gap:20px;flex-wrap:wrap}}@media(max-width:480px){.hero{min-height:790px}.hero-content{padding-top:95px}.hero h1{font-size:45px}.actions{align-items:flex-start;flex-direction:column;gap:22px}.scroll{top:700px}.metrics{margin-top:-75px}.dashboard{padding:12px;gap:12px}.panel{padding:15px}.stat{padding:15px;min-height:98px}.stat strong{font-size:26px}.activity{font-size:12px}.section h2{font-size:34px}.closing{padding:80px 20px}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
-</style></head><body><main class="site"><section class="hero"><div class="ocean"><div class="particles"></div></div><div class="depth" aria-hidden="true"></div><div class="depth-line"></div><div class="wrap"><header><a class="brand" href="#top" aria-label="MailTracker 首页"><span class="brand-mark"><i></i></span>MailTracker</a><nav class="nav" aria-label="主导航"><a href="/api/download_extension" class="nav-primary">免费下载插件</a><a href="/dashboard" class="nav-glass">登录控制台</a></nav></header><div id="top" class="hero-content"><div class="eyebrow">SIGNALS BENEATH THE SURFACE · 洞察水面之下</div><h1>每一封邮件，<br>都有<span><em>迹</em></span>可循。</h1><p class="lead">专为跨境商务与达人营销打造的 Gmail 追踪系统。看见打开信号，判断跟进时机，让下一次沟通更有把握。</p><div class="actions"><a class="button" href="/api/download_extension">下载 Chrome 插件 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a><a class="text-link" href="/dashboard">进入数据大盘 →</a></div></div><div class="scroll">SCROLL TO DIVE</div><div class="coordinate">DEPTH 001 / INTELLIGENCE LAYER<br>38° 14′ 07″ N &nbsp; 121° 55′ 32″ W</div></div></section><section class="section" id="preview"><div class="wrap"><div class="metrics"><div class="dashboard glass"><div class="panel"><div class="panel-head"><span>邮件互动趋势</span><small>数据界面预览 / 示例</small></div><div class="chart"><svg viewBox="0 0 620 180" preserveAspectRatio="none" aria-label="示例邮件互动趋势曲线" role="img"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#48dff4" stop-opacity=".38"/><stop offset="1" stop-color="#48dff4" stop-opacity="0"/></linearGradient></defs><path d="M0 146 C48 148 65 116 105 124 S166 155 205 119 S270 130 310 91 S370 111 415 67 S475 90 514 49 S580 60 620 20 L620 180 L0 180Z" fill="url(#fill)"/><path d="M0 146 C48 148 65 116 105 124 S166 155 205 119 S270 130 310 91 S370 111 415 67 S475 90 514 49 S580 60 620 20" stroke="#83ecff" stroke-width="3" fill="none"/><circle cx="514" cy="49" r="6" fill="#b5faff"/></svg></div><div class="chart-labels"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div></div><div class="stats"><div class="stat"><span>邮件打开率</span><strong>48.6% <b>↗ 12.4%</b></strong></div><div class="stat"><span>已追踪邮件</span><strong>1,284 <b>本周</b></strong></div><div class="stat"><span>重复打开</span><strong>86 <b>潜在意向</b></strong></div><div class="stat"><span>最佳跟进窗口</span><strong>09:42 <b>当地时间</b></strong></div><div class="activity"><i class="pulse"></i><span>示例动态：一位达人再次打开了合作邮件</span><time>刚刚</time></div></div></div></div><div class="section-inner" id="features"><div class="section-tag">BUILT FOR OUTREACH</div><h2>从发出邮件，到看见机会。</h2><p class="section-intro">把散落在收件箱里的互动线索，变成清晰的跟进判断。</p><div class="features"><article class="feature glass"><div class="num">01 / SIGNAL</div><div class="feature-icon"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor"><circle cx="32" cy="32" r="5"/><circle cx="32" cy="32" r="17" stroke-dasharray="75 32"/><circle cx="32" cy="32" r="29" stroke-dasharray="106 77"/><path d="M32 3v12M49 32h12"/></svg></div><h3>打开动态，尽在眼前</h3><p>了解邮件是否被打开，以及互动发生的时间。跟进不再只凭感觉。</p></article><article class="feature glass"><div class="num">02 / TIMING</div><div class="feature-icon"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor"><circle cx="32" cy="32" r="27"/><path d="M32 13v20l15 9M9 32h7M49 32h7"/><circle cx="32" cy="32" r="3" fill="currentColor"/></svg></div><h3>抓住合适的跟进时机</h3><p>关注多次打开的邮件，优先回应有互动的达人和合作方，让时间用在更值得的地方。</p></article><article class="feature glass"><div class="num">03 / WORKFLOW</div><div class="feature-icon"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor"><rect x="6" y="15" width="52" height="36" rx="5"/><path d="m7 19 25 20 25-20M15 58h34"/><circle cx="49" cy="15" r="8" fill="#082b40"/></svg></div><h3>融入 Gmail 工作流</h3><p>面向高频邮件建联场景设计。发信、观察、跟进，在熟悉的流程里顺畅完成。</p></article></div></div></div></section><section class="closing" id="download"><div class="section-tag">GO DEEPER</div><h2>让每一次触达，<br>更接近回应。</h2><p>从第一封邮件开始，捕捉互动信号，找到更合适的跟进节奏。</p><a class="button" href="/api/download_extension">免费下载插件 <span aria-hidden="true">↗</span></a></section><div class="wrap footer"><a class="brand" href="#top"><span class="brand-mark"><i></i></span>MailTracker</a><span>© 2026 MailTracker · 洞察每一次连接</span><a href="#top">回到顶部 ↑</a></div></main></body></html>
+    /* ====== 核心：全屏 AI 深海视频背景层 ====== */
+    .video-bg-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .video-bg {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    /* 调色遮罩：保证视频流动感的同时，让上面的文字和按钮清晰明亮 */
+    .video-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: linear-gradient(180deg, rgba(2, 11, 25, 0.45) 0%, rgba(2, 11, 25, 0.8) 100%);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    /* ====== ChatGPT Sites 原创深海科技 UI 样式 ====== */
+    .site { position: relative; min-height: 100vh; z-index: 2; }
+    .hero { position: relative; min-height: 920px; overflow: hidden; }
+    .wrap { width: min(1240px, calc(100% - 80px)); margin: 0 auto; position: relative; z-index: 2; }
+    header { height: 96px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 15px; }
+    .brand svg { width: 28px; height: 28px; }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-secondary {
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(2, 11, 25, 0.6);
+      backdrop-filter: blur(12px);
+      color: #effaff;
+      font-size: 14px;
+      font-weight: 500;
+      transition: .2s ease;
+    }
+    .btn-secondary:hover { border-color: rgba(35, 180, 255, 0.5); background: rgba(35, 180, 255, 0.1); }
+    .btn-primary {
+      padding: 10px 22px;
+      border-radius: 999px;
+      background: #0284c7;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 0 25px rgba(2, 132, 199, 0.5);
+      transition: .2s ease;
+    }
+    .btn-primary:hover { background: #0369a1; transform: translateY(-1px); }
+
+    .hero-content { padding-top: 100px; max-width: 760px; }
+    .hero-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(35, 180, 255, 0.35);
+      background: rgba(35, 180, 255, 0.08);
+      backdrop-filter: blur(12px);
+      font-size: 12px;
+      color: #7dd3fc;
+      margin-bottom: 28px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .hero-title { font-size: clamp(40px, 6vw, 68px); font-weight: 800; line-height: 1.15; letter-spacing: -0.03em; margin: 0 0 24px; color: #fff; }
+    .hero-desc { font-size: 18px; line-height: 1.7; color: #94a3b8; margin: 0 0 40px; max-width: 620px; }
+    .hero-btns { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 70px; }
+    .btn-hero-main {
+      padding: 15px 32px;
+      border-radius: 12px;
+      background: #0284c7;
+      color: #fff;
+      font-weight: 600;
+      font-size: 15px;
+      box-shadow: 0 8px 30px rgba(2, 132, 199, 0.45);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: .2s ease;
+    }
+    .btn-hero-main:hover { transform: translateY(-2px); box-shadow: 0 12px 35px rgba(56, 189, 248, 0.6); }
+    .btn-hero-sub {
+      padding: 15px 30px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(12px);
+      color: #cbd5e1;
+      font-weight: 500;
+      font-size: 15px;
+      transition: .2s ease;
+    }
+    .btn-hero-sub:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+    /* HUD 雷达预览舱面板 */
+    .cockpit-preview {
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 20px;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 40px rgba(14, 165, 233, 0.15);
+      padding: 32px;
+      margin-bottom: 80px;
+    }
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .stat-card {
+      background: rgba(30, 41, 59, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 24px;
+    }
+    .stat-card .label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
+    .stat-card .val { font-size: 34px; font-weight: 800; color: #38bdf8; }
+
+    /* 三大核心特性 */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 100px;
+    }
+    .f-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 36px 28px;
+      backdrop-filter: blur(14px);
+      transition: .3s ease;
+    }
+    .f-box:hover { transform: translateY(-6px); border-color: rgba(56, 189, 248, 0.4); }
+    .f-box h3 { font-size: 19px; font-weight: 700; margin: 0 0 12px; color: #fff; }
+    .f-box p { font-size: 14px; color: #94a3b8; line-height: 1.7; margin: 0; }
+
+    footer { text-align: center; padding: 40px 0 60px; font-size: 13px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+
+    @media (max-width: 860px) {
+      .stats-row, .features-grid { grid-template-columns: 1fr; }
+      .wrap { width: calc(100% - 36px); }
+      .hero-title { font-size: 38px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1. 全屏 AI 海洋视频背景 -->
+  <div class="video-bg-container">
+    <video autoplay loop muted playsinline class="video-bg">
+      <source src="/static/ocean.mp4" type="video/mp4">
+    </video>
+  </div>
+  <div class="video-overlay"></div>
+
+  <!-- 2. 前端界面层 -->
+  <main class="site">
+    <section class="hero">
+      <div class="wrap">
+        <header>
+          <a class="brand" href="/">
+            <svg viewBox="0 0 64 64" fill="none"><rect width="64" height="64" rx="16" fill="#23b4ff" fill-opacity="0.12"/><path d="M12 40 32 19l20 21-20 10Z" stroke="#23b4ff" stroke-width="4"/><circle cx="32" cy="36" r="6" fill="#23b4ff"/></svg>
+            <span>MailTracker</span>
+          </a>
+          <div class="nav-actions">
+            <a href="/api/download_extension" class="btn-primary">免费下载插件</a>
+            <a href="/dashboard" class="btn-secondary">登录控制台</a>
+          </div>
+        </header>
+
+        <div class="hero-content">
+          <div class="hero-tag">✦ SIGNALS BENEATH THE SURFACE · 洞察水面之下</div>
+          <h1 class="hero-title">每一封邮件，<br>都有迹可循。</h1>
+          <p class="hero-desc">专为跨境商务与达人营销打造的 Gmail 追踪系统。内置 30 秒水下防误扫引擎，看见真实打开信号，把握跟进时机。</p>
+          <div class="hero-btns">
+            <a href="/api/download_extension" class="btn-hero-main">📥 获取 Chrome 插件</a>
+            <a href="/dashboard" class="btn-hero-sub">进入数据大盘 →</a>
+          </div>
+        </div>
+
+        <!-- 数据控制台预览面板 -->
+        <div class="cockpit-preview">
+          <div class="stats-row">
+            <div class="stat-card">
+              <div class="label">达人发信总数</div>
+              <div class="val">1,284 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">封</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="label">真人有效开信 (已剔除扫描)</div>
+              <div class="val" style="color:#34d399;">624 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">次</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="label">商务打开率</div>
+              <div class="val" style="color:#38bdf8;">48.6%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3大核心功能 -->
+        <div class="features-grid">
+          <div class="f-box">
+            <h3>1 像素深海隐形追踪</h3>
+            <p>智能适配 Gmail 折叠头像气泡与原生编辑框，发信时无感植入追踪像素，达人开箱毫无察觉。</p>
+          </div>
+          <div class="f-box">
+            <h3>30 秒水下防扫描声呐</h3>
+            <p>精准过滤海外企业邮箱杀毒系统的自动扫信行为，记录完整流水日志，只沉淀真人阅读信号。</p>
+          </div>
+          <div class="f-box">
+            <h3>Ctrl + Enter 极速上报</h3>
+            <p>完美支持键盘快捷发信与点击发送双模式，底层多租户物理沙盒隔离，保障数据资产私密安全。</p>
+          </div>
+        </div>
+
+        <footer>
+          © 2026 MailTracker. 专为出海营销与商务拓展赋能.
+        </footer>
+      </div>
+    </section>
+  </main>
+
+</body>
+</html>
