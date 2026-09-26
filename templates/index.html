@@ -35,106 +35,146 @@
       object-fit: cover;
       object-position: center;
     }
-    /* 调色遮罩：保证视频流动感的同时，让上面的文字和按钮清晰明亮 */
+    /* 调色遮罩已优化：通透微光，不压暗背景阳光，文字背后加阴影保证清晰 */
     .video-overlay {
       position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      background: linear-gradient(180deg, rgba(2, 11, 25, 0.45) 0%, rgba(2, 11, 25, 0.8) 100%);
+      background: radial-gradient(circle at 50% 30%, rgba(2, 11, 25, 0.1) 0%, rgba(2, 11, 25, 0.5) 100%);
       z-index: 1;
       pointer-events: none;
     }
 
-    /* ====== ChatGPT Sites 原创深海科技 UI 样式 ====== */
+    /* ====== 布局与全屏中轴对齐 ====== */
     .site { position: relative; min-height: 100vh; z-index: 2; }
     .hero { position: relative; min-height: 920px; overflow: hidden; }
-    .wrap { width: min(1240px, calc(100% - 80px)); margin: 0 auto; position: relative; z-index: 2; }
-    header { height: 96px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+    .wrap { width: min(1140px, calc(100% - 60px)); margin: 0 auto; position: relative; z-index: 2; }
+    
+    header {
+      height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
     .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 15px; }
     .brand svg { width: 28px; height: 28px; }
     .nav-actions { display: flex; align-items: center; gap: 12px; }
     .btn-secondary {
-      padding: 10px 18px;
+      padding: 9px 20px;
       border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      background: rgba(2, 11, 25, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(2, 11, 25, 0.45);
       backdrop-filter: blur(12px);
       color: #effaff;
-      font-size: 14px;
-      font-weight: 500;
+      font-size: 13px;
+      font-weight: 600;
       transition: .2s ease;
     }
-    .btn-secondary:hover { border-color: rgba(35, 180, 255, 0.5); background: rgba(35, 180, 255, 0.1); }
+    .btn-secondary:hover { border-color: rgba(35, 180, 255, 0.5); background: rgba(35, 180, 255, 0.15); }
     .btn-primary {
-      padding: 10px 22px;
+      padding: 9px 22px;
       border-radius: 999px;
       background: #0284c7;
       color: #fff;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
-      box-shadow: 0 0 25px rgba(2, 132, 199, 0.5);
+      box-shadow: 0 0 20px rgba(2, 132, 199, 0.6);
       transition: .2s ease;
     }
     .btn-primary:hover { background: #0369a1; transform: translateY(-1px); }
 
-    .hero-content { padding-top: 100px; max-width: 760px; }
+    /* 首屏文字区：强制居中对齐 */
+    .hero-content {
+      padding-top: 80px;
+      max-width: 860px;
+      margin: 0 auto;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
     .hero-tag {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 16px;
+      padding: 6px 18px;
       border-radius: 999px;
-      border: 1px solid rgba(35, 180, 255, 0.35);
-      background: rgba(35, 180, 255, 0.08);
+      border: 1px solid rgba(35, 180, 255, 0.4);
+      background: rgba(15, 23, 42, 0.5);
       backdrop-filter: blur(12px);
       font-size: 12px;
       color: #7dd3fc;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
       letter-spacing: .06em;
       text-transform: uppercase;
     }
-    .hero-title { font-size: clamp(40px, 6vw, 68px); font-weight: 800; line-height: 1.15; letter-spacing: -0.03em; margin: 0 0 24px; color: #fff; }
-    .hero-desc { font-size: 18px; line-height: 1.7; color: #94a3b8; margin: 0 0 40px; max-width: 620px; }
-    .hero-btns { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 70px; }
+    .hero-title {
+      font-size: clamp(38px, 5.5vw, 64px);
+      font-weight: 800;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      margin: 0 0 22px;
+      color: #ffffff;
+      text-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+    }
+    .hero-desc {
+      font-size: 18px;
+      line-height: 1.7;
+      color: #f1f5f9;
+      margin: 0 0 36px;
+      max-width: 680px;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+    }
+    /* 按钮组水平严格居中 */
+    .hero-btns {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
     .btn-hero-main {
-      padding: 15px 32px;
+      padding: 14px 32px;
       border-radius: 12px;
       background: #0284c7;
       color: #fff;
-      font-weight: 600;
+      font-weight: 700;
       font-size: 15px;
-      box-shadow: 0 8px 30px rgba(2, 132, 199, 0.45);
+      box-shadow: 0 8px 30px rgba(2, 132, 199, 0.5);
       display: inline-flex;
       align-items: center;
       gap: 8px;
       transition: .2s ease;
     }
-    .btn-hero-main:hover { transform: translateY(-2px); box-shadow: 0 12px 35px rgba(56, 189, 248, 0.6); }
+    .btn-hero-main:hover { transform: translateY(-2px); box-shadow: 0 12px 35px rgba(56, 189, 248, 0.7); }
     .btn-hero-sub {
-      padding: 15px 30px;
+      padding: 14px 30px;
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.2);
       backdrop-filter: blur(12px);
       color: #cbd5e1;
-      font-weight: 500;
+      font-weight: 600;
       font-size: 15px;
       transition: .2s ease;
     }
-    .btn-hero-sub:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .btn-hero-sub:hover { background: rgba(15, 23, 42, 0.75); color: #fff; border-color: #38bdf8; }
 
-    /* HUD 雷达预览舱面板 */
+    /* 数据预览舱：与整体宽度居中对齐 */
     .cockpit-preview {
+      width: 100%;
+      margin: 0 auto 70px;
       background: rgba(15, 23, 42, 0.65);
-      border: 1px solid rgba(56, 189, 248, 0.25);
+      border: 1px solid rgba(56, 189, 248, 0.3);
       border-radius: 20px;
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 40px rgba(14, 165, 233, 0.15);
+      box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 35px rgba(14, 165, 233, 0.15);
       padding: 32px;
-      margin-bottom: 80px;
     }
     .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
     .stat-card {
@@ -142,35 +182,37 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       padding: 24px;
+      text-align: left;
     }
-    .stat-card .label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
-    .stat-card .val { font-size: 34px; font-weight: 800; color: #38bdf8; }
+    .stat-card .label { font-size: 13px; color: #cbd5e1; margin-bottom: 8px; }
+    .stat-card .val { font-size: 34px; font-weight: 800; color: #38bdf8; text-shadow: 0 0 15px rgba(56,189,248,0.3); }
 
-    /* 三大核心特性 */
+    /* 三大核心特性卡片 */
     .features-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-      margin-bottom: 100px;
+      gap: 22px;
+      margin-bottom: 90px;
     }
     .f-box {
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(56, 189, 248, 0.2);
       border-radius: 18px;
-      padding: 36px 28px;
+      padding: 32px 24px;
       backdrop-filter: blur(14px);
       transition: .3s ease;
+      text-align: left;
     }
-    .f-box:hover { transform: translateY(-6px); border-color: rgba(56, 189, 248, 0.4); }
-    .f-box h3 { font-size: 19px; font-weight: 700; margin: 0 0 12px; color: #fff; }
-    .f-box p { font-size: 14px; color: #94a3b8; line-height: 1.7; margin: 0; }
+    .f-box:hover { transform: translateY(-6px); border-color: rgba(56, 189, 248, 0.5); }
+    .f-box h3 { font-size: 18px; font-weight: 700; margin: 0 0 10px; color: #fff; }
+    .f-box p { font-size: 14px; color: #cbd5e1; line-height: 1.6; margin: 0; }
 
-    footer { text-align: center; padding: 40px 0 60px; font-size: 13px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+    footer { text-align: center; padding: 30px 0 50px; font-size: 13px; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.1); }
 
     @media (max-width: 860px) {
       .stats-row, .features-grid { grid-template-columns: 1fr; }
-      .wrap { width: calc(100% - 36px); }
-      .hero-title { font-size: 38px; }
+      .wrap { width: calc(100% - 32px); }
+      .hero-title { font-size: 34px; }
     }
   </style>
 </head>
@@ -201,8 +243,8 @@
 
         <div class="hero-content">
           <div class="hero-tag">✦ SIGNALS BENEATH THE SURFACE · 洞察水面之下</div>
-          <h1 class="hero-title">每一封邮件，<br>都有迹可循。</h1>
-          <p class="hero-desc">专为跨境商务与达人营销打造的 Gmail 追踪系统。内置 30 秒水下防误扫引擎，看见真实打开信号，把握跟进时机。</p>
+          <h1 class="hero-title">每一封邮件，都有迹可循。</h1>
+          <p class="hero-desc">专为跨境商务与达人营销打造的 Gmail 追踪系统。内置 30 秒防扫描误判过滤，洞察真实商务开信，精准把握每次跟进契机。</p>
           <div class="hero-btns">
             <a href="/api/download_extension" class="btn-hero-main">📥 获取 Chrome 插件</a>
             <a href="/dashboard" class="btn-hero-sub">进入数据大盘 →</a>
