@@ -6,87 +6,162 @@
   <title>MailTracker - 专为跨境与达人营销打造的深海 Gmail 追踪系统</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="landing-body">
-  <!-- 顶部水面微光呼吸光晕 -->
-  <div class="ocean-light-beam"></div>
+<body class="ocean-world">
 
-  <!-- 极简毛玻璃顶栏 -->
+  <!-- 动态漂浮上升气泡容器 -->
+  <div class="bubbles-container" id="bubbles"></div>
+
+  <!-- 右侧固定挂载：万米深潜刻度仪表盘 -->
+  <div class="depth-hud">
+    <div class="hud-label">CURRENT DEPTH</div>
+    <div class="hud-number"><span id="depthVal">0</span><span class="hud-unit">m</span></div>
+    <div class="hud-zone" id="zoneVal">透光海面层 (Epipelagic)</div>
+    <div class="hud-bar"><div class="hud-fill" id="hudFill"></div></div>
+  </div>
+
+  <!-- 顶栏导航 -->
   <div class="nav">
     <a href="/" class="brand">🌊 MailTracker</a>
     <div class="nav-links">
       <a href="/api/download_extension" class="nav-btn nav-btn-text">📥 下载插件</a>
-      <a href="/dashboard" class="nav-btn nav-btn-primary">进入大盘</a>
+      <a href="/dashboard" class="nav-btn nav-btn-primary">进入控制舱</a>
     </div>
   </div>
 
-  <!-- 海面第一层：Hero 视觉 -->
-  <div class="hero">
-    <div class="depth-indicator">✦ 0m 海面透光区 · TikTok / Ins 达人建联利器</div>
-    <h1>让发出的每一封达人邮件<br>潜入最深处，依然有迹可循</h1>
-    <p>无感嵌入 Gmail，毫秒级捕获大洋彼岸达人的开信行为。内置 30 秒防扫描过滤器，为你过滤虚假杂音，呈现最真实纯粹的转化深潜数据。</p>
-    <div class="hero-actions">
-      <a href="/api/download_extension" class="btn-main btn-glow-blue">📥 免费下载浏览器插件 (v1.0)</a>
-      <a href="/dashboard" class="btn-main btn-glass">进入控制舱看板 →</a>
-    </div>
-  </div>
-
-  <!-- 随滚动逐渐下潜：HUD 毛玻璃深海控制舱看板 -->
-  <div class="deep-cockpit">
-    <div class="cockpit-frame">
-      <div class="cockpit-header">
-        <div class="cockpit-dots">
-          <div class="dot dot-red"></div>
-          <div class="dot dot-yellow"></div>
-          <div class="dot dot-green"></div>
-        </div>
-        <div class="cockpit-title">SYSTEM STATUS: DEEP_SEA_MONITOR_ONLINE</div>
-        <div style="font-size: 11px; color: #38bdf8;">LIVE TRACKING</div>
+  <!-- 第 1 深度区 (0m ~ 200m) ：海平面透光区 -->
+  <section class="depth-section" style="padding-top: 60px;">
+    <div class="hero">
+      <div class="depth-tag">✦ 0m 海面透光区 · TikTok / Ins 达人建联出海</div>
+      <h1>让发出的每一封达人邮件<br>潜入万米，依然有迹可循</h1>
+      <p>无感嵌入 Gmail，毫秒级捕获大洋彼岸达人的开信行为。<br>内置 30 秒水下防扫描声呐，为你剔除虚假已读，直击真人商务转化。</p>
+      <div class="hero-actions">
+        <a href="/api/download_extension" class="btn-main btn-glow-blue">📥 免费下载浏览器插件 (v1.0)</a>
+        <a href="/dashboard" class="btn-main btn-glass">进入数据大盘 →</a>
       </div>
-      <div class="cockpit-body">
-        <div class="cockpit-stats">
-          <div class="cockpit-stat-box">
-            <div class="label">达人发信总计</div>
-            <div class="val">1,248 <span style="font-size:12px; color:#94a3b8; font-weight:normal;">封</span></div>
-          </div>
-          <div class="cockpit-stat-box">
-            <div class="label">达人真实开信 (已剔除误扫)</div>
-            <div class="val" style="color: #34d399;">526 <span style="font-size:12px; color:#94a3b8; font-weight:normal;">次</span></div>
-          </div>
-          <div class="cockpit-stat-box">
-            <div class="label">建联商务打开率</div>
-            <div class="val" style="color: #38bdf8;">42.1%</div>
-          </div>
-        </div>
-        <div style="font-size: 12px; color: #64748b; display:flex; justify-content:space-between; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 14px;">
-          <span>🎯 智能 1 像素隐形穿透植入</span>
-          <span>🛡️ 30s 邮箱杀毒防误判引擎运行中</span>
-          <span>🔒 多租户沙盒物理隔离</span>
-        </div>
+      <div class="scroll-down-hint">
+        <div class="mouse-icon"></div>
+        <span>向下滚动 · 潜入深海</span>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- 万米深海层：特性卡片（带有流光边框特效） -->
-  <div class="features">
-    <div class="f-card">
-      <div class="f-icon">🌊</div>
-      <h3>1像素深海隐形追踪</h3>
-      <p>自动识别 Gmail 折叠头像气泡与原生编辑框，发信时智能植入透明像素，收件人完全无感，达人进信箱率丝毫不受影响。</p>
+  <!-- 第 2 深度区 (200m ~ 1000m) ：中层微光带 -->
+  <section class="depth-section">
+    <div class="deep-cockpit">
+      <div class="cockpit-frame">
+        <div class="cockpit-header">
+          <div class="cockpit-dots">
+            <div class="dot dot-red"></div>
+            <div class="dot dot-yellow"></div>
+            <div class="dot dot-green"></div>
+          </div>
+          <div class="cockpit-title">SUBMARINE HUD: DEEP_SEA_MONITOR</div>
+          <div style="font-size: 11px; color: #38bdf8; letter-spacing: 1px;">REAL-TIME SONAR</div>
+        </div>
+        <div class="cockpit-body">
+          <div class="cockpit-stats">
+            <div class="cockpit-stat-box">
+              <div class="label">达人发信总计</div>
+              <div class="val">1,248 <span style="font-size:12px; color:#94a3b8;">封</span></div>
+            </div>
+            <div class="cockpit-stat-box">
+              <div class="label">真实真人开信 (已剔除误扫)</div>
+              <div class="val" style="color: #34d399;">526 <span style="font-size:12px; color:#94a3b8;">次</span></div>
+            </div>
+            <div class="cockpit-stat-box">
+              <div class="label">商务打开率</div>
+              <div class="val" style="color: #38bdf8;">42.1%</div>
+            </div>
+          </div>
+          <div class="cockpit-footer-tips">
+            <span>🎯 1 像素隐形穿透植入</span>
+            <span>🛡️ 30s 智能防误扫引擎</span>
+            <span>🔒 多租户沙盒物理隔离</span>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="f-card">
-      <div class="f-icon">🛡️</div>
-      <h3>30秒水下声呐防扫</h3>
-      <p>智能识别并隔离海外邮件网关的自动杀毒扫描，提供精准的时间轴流水明细，拒绝虚假已读，直击真人商务反馈。</p>
-    </div>
-    <div class="f-card">
-      <div class="f-icon">💎</div>
-      <h3>多租户物理级数据沙盒</h3>
-      <p>团队成员多人各自独立使用，数据云端严密物理隔离。快捷键 <code>Ctrl + Enter</code> 秒级捕获，打造属于你的出海营销战舰。</p>
-    </div>
-  </div>
+  </section>
 
-  <div class="footer">
-    © 2026 MailTracker. 专为跨境出海与达人营销商务团队打造.
-  </div>
+  <!-- 第 3 深度区 (1000m ~ 4000m) ：午夜深渊带 -->
+  <section class="depth-section">
+    <div class="features-wrapper">
+      <h2 style="font-size: 32px; font-weight: 800; margin-bottom: 40px; color:#f8fafc; text-align:center;">深渊极客功能矩阵</h2>
+      <div class="features">
+        <div class="f-card">
+          <div class="f-icon">🌊</div>
+          <h3>1像素深海隐形追踪</h3>
+          <p>智能穿透 Gmail 原生折叠气泡，发信时无感植入透明像素，收件人毫无察觉，进箱率不受丝毫干扰。</p>
+        </div>
+        <div class="f-card">
+          <div class="f-icon">🛡️</div>
+          <h3>30秒声呐防误扫</h3>
+          <p>智能识别并隔离企业邮箱网关的自动扫描机器，时间轴明细流水展开，只呈现最纯正的真人反馈。</p>
+        </div>
+        <div class="f-card">
+          <div class="f-icon">⚡</div>
+          <h3>Ctrl + Enter 快捷捕获</h3>
+          <p>深海神经反射级响应，无论是鼠标单击还是双手盲打快捷键发送，毫秒级自动注入并登记上报。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 第 4 深度区 (4000m+) ：万米海沟超深渊 -->
+  <section class="depth-section" style="min-height: 50vh;">
+    <div class="hero">
+      <div class="depth-tag">✦ 4,000m 超深渊马里亚纳海沟</div>
+      <h2 style="font-size: 36px; margin-bottom: 20px;">准备好掌控你的出海建联了吗？</h2>
+      <p>无需繁琐配置，下载插件输入账号，即刻开启全自动打开率监控。</p>
+      <div class="hero-actions">
+        <a href="/api/download_extension" class="btn-main btn-glow-blue">立即下载插件开启探索</a>
+      </div>
+    </div>
+    <div class="footer">
+      © 2026 MailTracker. 专为跨境出海与达人营销商务团队赋能.
+    </div>
+  </section>
+
+  <!-- 随滚动计算深度与水流颜色的脚本 -->
+  <script>
+    // 1. 生成随机上升气泡
+    const bContainer = document.getElementById('bubbles');
+    for (let i = 0; i < 25; i++) {
+      const b = document.createElement('div');
+      b.className = 'bubble';
+      const size = Math.random() * 8 + 4;
+      b.style.width = size + 'px';
+      b.style.height = size + 'px';
+      b.style.left = Math.random() * 100 + '%';
+      b.style.animationDuration = (Math.random() * 6 + 6) + 's';
+      b.style.animationDelay = (Math.random() * 8) + 's';
+      bContainer.appendChild(b);
+    }
+
+    // 2. 监听滚动条，动态下潜
+    const depthValEl = document.getElementById('depthVal');
+    const zoneValEl = document.getElementById('zoneVal');
+    const hudFill = document.getElementById('hudFill');
+
+    window.addEventListener('scroll', () => {
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = maxScroll > 0 ? (window.scrollY / maxScroll) : 0;
+      
+      // 深度从 0m 换算到 4,200m
+      const currentMeters = Math.floor(progress * 4200);
+      depthValEl.innerText = currentMeters.toLocaleString();
+      hudFill.style.height = (progress * 100) + '%';
+
+      if (currentMeters < 200) {
+        zoneValEl.innerText = "透光海面层 (Epipelagic)";
+      } else if (currentMeters < 1000) {
+        zoneValEl.innerText = "中层微光带 (Mesopelagic)";
+      } else if (currentMeters < 3000) {
+        zoneValEl.innerText = "午夜深渊带 (Bathypelagic)";
+      } else {
+        zoneValEl.innerText = "万米海沟超深渊 (Hadal Zone)";
+      }
+    });
+  </script>
 </body>
 </html>
