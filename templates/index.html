@@ -3,269 +3,301 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MailTracker — Closer to the Ocean</title>
-  <!-- 引入顶级高级衬线体与无衬线体 -->
+  <title>MailTracker — 看见每封邮件的下一步</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
+    html { scroll-behavior: smooth; }
+    body {
       width: 100%;
       min-height: 100vh;
       font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #ffffff;
+      background: #020b19;
       overflow-x: hidden;
-      color: #14233c; /* 提取自右图的顶级深黛青墨色 */
     }
+    a { text-decoration: none; color: inherit; }
 
-    /* 1. 全屏纯净原画视频背景（0 遮罩，全透光） */
+    /* 1. 纯净全屏视频背景（彻底去掉死黑遮罩） */
     .video-bg-container {
       position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      z-index: -1;
+      z-index: -2;
       overflow: hidden;
+      pointer-events: none;
     }
     .video-bg {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      object-position: center bottom; /* 突出海平线 */
+      object-position: center bottom;
+    }
+    /* 顶部超轻微羽化：仅保障导航和文字在亮天下不刺眼，绝不挡海 */
+    .video-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: linear-gradient(180deg, rgba(10, 25, 47, 0.35) 0%, rgba(10, 25, 47, 0.1) 40%, rgba(2, 11, 25, 0.8) 100%);
+      z-index: -1;
+      pointer-events: none;
     }
 
-    /* 2. 页面全局容器 */
-    .viewport {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 0 48px 40px;
+    /* 2. 页面中轴容器 */
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
       position: relative;
       z-index: 10;
     }
 
-    /* 3. 顶部微光小提示条（与右图一致） */
-    .top-announcement {
-      text-align: center;
-      padding: 10px 0;
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      color: rgba(20, 35, 60, 0.7);
-      text-transform: uppercase;
-      font-weight: 500;
-    }
-
-    /* 4. 极简通透导航栏 */
+    /* 3. 极简精致顶栏 */
     header {
+      height: 84px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 60px;
     }
     .brand {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
       display: flex;
       align-items: center;
-      gap: 10px;
-      text-decoration: none;
-      color: #11223f;
-      font-family: 'Cinzel', serif;
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.15em;
+      gap: 8px;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 32px;
-    }
-    .nav-link {
-      text-decoration: none;
-      color: rgba(20, 35, 60, 0.75);
-      font-size: 13px;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-    .nav-link:hover { color: #0a192f; }
+    .nav-actions { display: flex; align-items: center; gap: 14px; }
     .btn-nav-capsule {
       padding: 8px 20px;
       border-radius: 999px;
-      border: 1px solid rgba(20, 35, 60, 0.25);
-      background: rgba(255, 255, 255, 0.2);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      color: #11223f;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: #fff;
       font-size: 13px;
-      font-weight: 500;
-      text-decoration: none;
+      font-weight: 600;
       transition: 0.2s;
     }
-    .btn-nav-capsule:hover {
-      background: rgba(255, 255, 255, 0.45);
-      border-color: rgba(20, 35, 60, 0.4);
-    }
+    .btn-nav-capsule:hover { background: rgba(255, 255, 255, 0.3); }
 
-    /* 5. 核心 Hero 区域：精准复制右图的杂志级左侧构图 */
+    /* 4. 首屏纯粹展示区：轻盈、留白、通透大片 */
     .hero-section {
-      max-width: 620px;
-      padding-top: 80px;
-      margin-left: 10px;
+      min-height: calc(100vh - 84px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding-bottom: 40px;
     }
-    .hero-eyebrow {
-      font-size: 11px;
-      letter-spacing: 0.25em;
+    .hero-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 18px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(10px);
+      font-size: 12px;
+      color: #7dd3fc;
+      letter-spacing: 0.15em;
       text-transform: uppercase;
-      color: rgba(20, 35, 60, 0.7);
       margin-bottom: 24px;
       font-weight: 600;
     }
     .hero-title {
-      font-family: 'Playfair Display', serif; /* 优雅杂志衬线大标 */
-      font-size: clamp(56px, 6.5vw, 84px);
-      font-weight: 500;
-      line-height: 1.05;
+      font-size: clamp(42px, 5.5vw, 68px);
+      font-weight: 800;
+      line-height: 1.15;
       letter-spacing: -0.02em;
-      color: #11223f;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8), 0 1px 3px rgba(0,0,0,0.9);
     }
     .hero-desc {
-      font-size: 16px;
-      line-height: 1.6;
-      color: rgba(20, 35, 60, 0.75);
+      font-size: 17px;
+      line-height: 1.7;
+      color: #f8fafc;
+      max-width: 600px;
       margin-bottom: 36px;
-      max-width: 440px;
+      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
       font-weight: 400;
     }
-
-    /* 6. 按钮组：深海墨蓝胶囊 + 晶莹玻璃悬浮按钮 */
-    .hero-actions {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    .btn-dark-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 13px 28px;
-      border-radius: 999px;
-      background: #12233f;
-      color: #ffffff;
-      font-size: 14px;
-      font-weight: 500;
-      text-decoration: none;
-      box-shadow: 0 10px 25px rgba(18, 35, 63, 0.25);
-      transition: all 0.2s ease;
-    }
-    .btn-dark-pill:hover {
-      background: #0a172c;
-      transform: translateY(-2px);
-      box-shadow: 0 14px 30px rgba(18, 35, 63, 0.35);
-    }
-    .btn-play-glass {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 24px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.25);
-      border: 1px solid rgba(255, 255, 255, 0.4);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      color: #11223f;
-      font-size: 14px;
-      font-weight: 500;
-      text-decoration: none;
-      transition: all 0.2s ease;
-    }
-    .btn-play-glass:hover {
-      background: rgba(255, 255, 255, 0.45);
-      transform: translateY(-2px);
-    }
-    .play-icon {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      border: 1.5px solid #11223f;
+    .hero-btns {
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
     }
+    .btn-glow-blue {
+      padding: 13px 32px;
+      border-radius: 999px;
+      background: #0284c7;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 8px 30px rgba(2, 132, 199, 0.6);
+      transition: 0.2s;
+    }
+    .btn-glow-blue:hover { transform: translateY(-2px); box-shadow: 0 12px 35px rgba(56, 189, 248, 0.8); }
+    .btn-glass-pill {
+      padding: 13px 30px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      backdrop-filter: blur(12px);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      transition: 0.2s;
+    }
+    .btn-glass-pill:hover { background: rgba(255, 255, 255, 0.2); }
 
-    /* 7. 右下角向下滚动提示 */
-    .bottom-bar {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      padding-bottom: 10px;
-    }
-    .scroll-hint {
-      font-size: 10px;
+    .scroll-down {
+      margin-top: 50px;
+      font-size: 11px;
       letter-spacing: 0.2em;
+      color: rgba(255, 255, 255, 0.7);
       text-transform: uppercase;
-      color: rgba(20, 35, 60, 0.6);
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      animation: bounce 2s infinite;
+    }
+    @keyframes bounce {
+      0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-6px); }
+      60% { transform: translateY(-3px); }
     }
 
-    @media (max-width: 768px) {
-      .viewport { padding: 0 20px 30px; }
-      .nav-links { display: none; }
-      .hero-title { font-size: 46px; }
-      .hero-section { padding-top: 50px; }
+    /* 5. 往下滚动才展现的数据看板与功能区（不再遮挡首屏海面） */
+    .cockpit-preview {
+      width: 100%;
+      margin: 40px auto 80px;
+      background: rgba(10, 20, 38, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 20px;
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.8);
+      padding: 32px;
+    }
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .stat-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 24px;
+      text-align: left;
+    }
+    .stat-card .label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
+    .stat-card .val { font-size: 34px; font-weight: 800; color: #38bdf8; }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+      margin-bottom: 90px;
+    }
+    .f-box {
+      background: rgba(10, 20, 38, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 18px;
+      padding: 32px 24px;
+      backdrop-filter: blur(16px);
+      transition: .3s ease;
+      text-align: left;
+    }
+    .f-box:hover { transform: translateY(-6px); border-color: rgba(56, 189, 248, 0.5); }
+    .f-box h3 { font-size: 18px; font-weight: 700; margin: 0 0 10px; color: #fff; }
+    .f-box p { font-size: 14px; color: #cbd5e1; line-height: 1.6; margin: 0; }
+
+    footer { text-align: center; padding: 40px 0 60px; font-size: 13px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+
+    @media (max-width: 860px) {
+      .stats-row, .features-grid { grid-template-columns: 1fr; }
+      .hero-title { font-size: 36px; }
     }
   </style>
 </head>
 <body>
 
-  <!-- 1. 全屏高清纯净海洋视频（无遮罩） -->
+  <!-- 1. 全屏纯净原画海洋视频背景 -->
   <div class="video-bg-container">
     <video autoplay loop muted playsinline class="video-bg">
       <source src="/static/ocean.mp4" type="video/mp4">
     </video>
   </div>
+  <div class="video-overlay"></div>
 
-  <div class="viewport">
-    <div>
-      <div class="top-announcement">A new perspective begins here · 开启邮件洞察新视野</div>
-      <header>
-        <a class="brand" href="/">
-          <span>≈ OCEAN TRACKER</span>
-        </a>
-        <div class="nav-links">
-          <a href="#" class="nav-link">功能特性</a>
-          <a href="#" class="nav-link">达人建联</a>
-          <a href="#" class="nav-link">声呐防扫</a>
-        </div>
-        <a href="/dashboard" class="btn-nav-capsule">进入控制台 →</a>
-      </header>
-
-      <!-- 核心杂志大标区 -->
-      <div class="hero-section">
-        <div class="hero-eyebrow">FEEL THE WORLD SLOW DOWN · 让每一步有迹可循</div>
-        <h1 class="hero-title">Closer to<br>the ocean.</h1>
-        <p class="hero-desc">无感嵌入 Gmail 商务发信。毫秒级捕获大洋彼岸的真实开信信号，在波涛之下洞见商机。</p>
-        <div class="hero-actions">
-          <a href="/api/download_extension" class="btn-dark-pill">
-            获取 Chrome 插件 →
-          </a>
-          <a href="/dashboard" class="btn-play-glass">
-            <span class="play-icon">▶</span>
-            <span>查看数据大盘</span>
-          </a>
-        </div>
+  <!-- 2. 页面内容 -->
+  <div class="wrap">
+    <header>
+      <a class="brand" href="/">🌊 MailTracker</a>
+      <div class="nav-actions">
+        <a href="/api/download_extension" class="btn-nav-capsule">下载插件</a>
+        <a href="/dashboard" class="btn-nav-capsule" style="background:#0284c7; border-color:#0284c7;">进入控制台</a>
       </div>
-    </div>
+    </header>
 
-    <!-- 底部滚动提示 -->
-    <div class="bottom-bar">
-      <div class="scroll-hint">
+    <!-- 首屏：干净利落的视觉焦点，把大海完完整整交还给你 -->
+    <section class="hero-section">
+      <div class="hero-tag">✦ SIGNALS BENEATH THE SURFACE · 洞察水面之下</div>
+      <h1 class="hero-title">每一封邮件，都有迹可循。</h1>
+      <p class="hero-desc">专为跨境商务与达人营销打造的 Gmail 追踪系统。<br>30 秒声呐过滤误扫，捕获大洋彼岸的真实开信契机。</p>
+      <div class="hero-btns">
+        <a href="/api/download_extension" class="btn-glow-blue">📥 获取 Chrome 插件</a>
+        <a href="/dashboard" class="btn-glass-pill">进入数据大盘 →</a>
+      </div>
+      <div class="scroll-down">
         SCROLL TO EXPLORE ↓
       </div>
+    </section>
+
+    <!-- 往下滚动时展现的数据大盘预览 -->
+    <div class="cockpit-preview">
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="label">达人发信总数</div>
+          <div class="val">1,284 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">封</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">真人有效开信 (已剔除扫描)</div>
+          <div class="val" style="color:#34d399;">624 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">次</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">商务打开率</div>
+          <div class="val" style="color:#38bdf8;">48.6%</div>
+        </div>
+      </div>
     </div>
+
+    <!-- 三大核心特性 -->
+    <div class="features-grid">
+      <div class="f-box">
+        <h3>1 像素深海隐形追踪</h3>
+        <p>适配 Gmail 原生发信框与折叠头像，无感植入微透明像素，收件方完全无察觉，进箱率不受影响。</p>
+      </div>
+      <div class="f-box">
+        <h3>30 秒水下防扫声呐</h3>
+        <p>精准识别海外企业邮箱网关的杀毒自动探测，自动分离虚假扫描，确保看板呈现真实开信。</p>
+      </div>
+      <div class="f-box">
+        <h3>极速快捷键捕获</h3>
+        <p>全面支持鼠标点击与 Ctrl / Cmd + Enter 键盘盲打，毫秒级响应上报，数据多租户物理沙盒隔离。</p>
+      </div>
+    </div>
+
+    <footer>
+      © 2026 MailTracker. 专为出海营销与商务拓展赋能.
+    </footer>
   </div>
 
 </body>
