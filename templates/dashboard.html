@@ -16,8 +16,8 @@
         html, body {
             width: 100%;
             min-height: 100vh;
-            background-color: #F3F6F4; /* 温润素宣底色 */
-            color: #202D26;           /* 松烟深墨 */
+            background-color: #F3F6F4;
+            color: #202D26;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, "PingFang SC", sans-serif;
             -webkit-font-smoothing: antialiased;
             font-variant-numeric: normal;
@@ -25,7 +25,7 @@
             overflow-x: hidden;
         }
 
-        /* 纯代码轻量宣纸纤维噪点层（0 耗时微质感） */
+        /* 纯代码轻量宣纸纤维噪点层 */
         body::before {
             content: "";
             position: fixed;
@@ -36,15 +36,15 @@
             background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
         }
 
-        /* 天青水汽晨雾漫反射光晕（与首页豪华波光意境贯通） */
+        /* 天青水汽晨雾漫反射光晕 */
         .ambient-glow-top {
             position: absolute;
-            top: -120px;
+            top: -140px;
             left: 50%;
             transform: translateX(-50%);
-            width: 1000px;
-            height: 380px;
-            background: radial-gradient(ellipse at center, rgba(162, 201, 187, 0.28) 0%, rgba(243, 246, 244, 0) 70%);
+            width: 1100px;
+            height: 420px;
+            background: radial-gradient(ellipse at center, rgba(162, 201, 187, 0.32) 0%, rgba(243, 246, 244, 0) 72%);
             pointer-events: none;
             z-index: 0;
         }
@@ -54,7 +54,7 @@
             margin: 0 auto;
             padding: 44px 28px 88px;
             position: relative;
-            z-index: 2; /* 浮于环境光之上 */
+            z-index: 2;
         }
 
         /* 顶栏：素雅与空灵 */
@@ -79,11 +79,11 @@
         .header::before {
             content: "";
             display: inline-block;
-            width: 7px;
-            height: 7px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: #2D6A4F;
-            box-shadow: 0 0 10px rgba(45, 106, 79, 0.5);
+            box-shadow: 0 0 12px rgba(45, 106, 79, 0.6);
         }
         .user-info {
             font-size: 13px;
@@ -136,17 +136,18 @@
             display: flex;
             gap: 6px;
             align-items: center;
-            background: rgba(255, 255, 255, 0.45);
+            background: rgba(255, 255, 255, 0.55);
             padding: 4px;
-            border-radius: 10px;
-            border: 1px solid rgba(36, 51, 44, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(36, 51, 44, 0.06);
+            box-shadow: 0 2px 6px rgba(36, 51, 44, 0.02);
         }
         .tab-btn {
             background: transparent;
             border: none;
             color: #64756B;
             padding: 7px 18px;
-            border-radius: 7px;
+            border-radius: 8px;
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
@@ -156,7 +157,7 @@
         .tab-btn.active {
             background: #FFFFFF;
             color: #17221C;
-            box-shadow: 0 2px 8px rgba(36, 51, 44, 0.05);
+            box-shadow: 0 2px 8px rgba(36, 51, 44, 0.06);
             font-weight: 600;
         }
         .custom-picker {
@@ -188,7 +189,7 @@
         }
         .custom-picker button:hover { background: #24553F; }
 
-        /* 核心指标卡：羊脂白玉镇纸质感 */
+        /* 核心指标卡：羊脂白玉镇纸 */
         .cards {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -196,50 +197,59 @@
             margin-bottom: 40px;
         }
         .card {
-            background: rgba(255, 255, 255, 0.88);
+            background: rgba(255, 255, 255, 0.92);
             backdrop-filter: blur(12px);
             border-radius: 18px;
-            padding: 26px 30px;
-            border: 1px solid rgba(255, 255, 255, 0.85);
-            box-shadow: 0 10px 28px rgba(36, 51, 44, 0.035), 0 1px 2px rgba(36, 51, 44, 0.02);
-            transition: all 0.25s ease;
+            padding: 28px 32px;
+            border: 1px solid rgba(255, 255, 255, 0.95);
+            box-shadow: 0 10px 28px rgba(36, 51, 44, 0.035), 0 1px 3px rgba(36, 51, 44, 0.02);
+            transition: all 0.28s ease;
             position: relative;
         }
         .card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 14px 34px rgba(36, 51, 44, 0.06);
+            box-shadow: 0 16px 36px rgba(36, 51, 44, 0.06);
         }
         .card-title {
             font-size: 13px;
-            color: #76877E;
+            color: #5E7267; /* 沉静青灰，清晰不刺眼 */
             margin-bottom: 12px;
-            font-weight: 500;
-            letter-spacing: 0.02em;
+            font-weight: 600;
+            letter-spacing: 0.03em;
         }
         .card-value {
-            font-size: 38px;
+            font-size: 40px;
             font-weight: 700;
             color: #17221C;
             letter-spacing: -0.02em;
             font-variant-numeric: normal;
         }
+        /* 真人有效打开：温润竹青光泽 */
+        .val-opened {
+            color: #2D6A4F !important;
+            text-shadow: 0 2px 10px rgba(45, 106, 79, 0.12);
+        }
+        /* 真实打开率：晴水黛青 */
+        .val-rate {
+            color: #1D5C6F !important;
+        }
 
         /* 明细列表：书法长卷折页感 */
         .table-container {
-            background: rgba(255, 255, 255, 0.88);
+            background: rgba(255, 255, 255, 0.92);
             backdrop-filter: blur(12px);
             border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.95);
             box-shadow: 0 12px 36px rgba(36, 51, 44, 0.035);
             overflow: hidden;
         }
         .table-title {
-            padding: 22px 30px;
+            padding: 22px 32px;
             font-family: 'Noto Serif SC', serif;
             font-size: 16px;
             font-weight: 600;
             color: #17221C;
-            letter-spacing: 0.02em;
+            letter-spacing: 0.03em;
             border-bottom: 1px solid rgba(36, 51, 44, 0.05);
         }
         table {
@@ -249,23 +259,26 @@
         }
         th {
             background: #F8FAF8;
-            color: #7B8C83;
+            color: #6C7E74;
             font-size: 12px;
             font-weight: 600;
             letter-spacing: 0.03em;
-            padding: 15px 30px;
+            padding: 16px 32px;
             border-bottom: 1px solid rgba(36, 51, 44, 0.05);
         }
         td {
-            padding: 20px 30px !important;
+            padding: 20px 32px !important;
             border-bottom: 1px solid rgba(36, 51, 44, 0.04) !important;
             font-size: 14px;
             vertical-align: middle;
-            transition: background 0.2s ease;
+            transition: all 0.2s ease;
             font-variant-numeric: normal;
         }
         tr:last-child td { border-bottom: none !important; }
-        tr:hover td { background: #F8FAF9; }
+        /* 悬停如清水掠宣纸 */
+        tr:hover td { 
+            background: rgba(237, 243, 240, 0.6); 
+        }
 
         /* 状态胶囊按钮 */
         .status-btn {
@@ -287,10 +300,11 @@
             border-color: rgba(36, 51, 44, 0.06);
         }
         .badge-read {
-            background-color: rgba(45, 106, 79, 0.09);
+            background-color: rgba(45, 106, 79, 0.1);
             color: #2D6A4F;
-            border-color: rgba(45, 106, 79, 0.22);
+            border-color: rgba(45, 106, 79, 0.24);
             font-weight: 600;
+            box-shadow: 0 2px 6px rgba(45, 106, 79, 0.08);
         }
         .badge-scan {
             background-color: rgba(217, 119, 6, 0.08);
@@ -698,11 +712,11 @@
             </div>
             <div class="card">
                 <div class="card-title">真人有效打开数</div>
-                <div class="card-value" id="statTotalOpened" style="color: #2D6A4F;">0</div>
+                <div class="card-value val-opened" id="statTotalOpened">0</div>
             </div>
             <div class="card">
                 <div class="card-title">真实打开率</div>
-                <div class="card-value" id="statRate" style="color: #1E5F74;">0.0%</div>
+                <div class="card-value val-rate" id="statRate">0.0%</div>
             </div>
         </div>
         <div class="table-container">
