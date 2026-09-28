@@ -86,6 +86,14 @@ def dashboard_page():
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     return "<h3>大盘文件加载中，请稍后刷新</h3>"
+    # 读取 templates 里的 outreach.html (批量触达独立页面)
+@app.get("/outreach", response_class=HTMLResponse)
+def outreach_page():
+    path = os.path.join("templates", "outreach.html")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h3>批量触达页面加载中，请稍后刷新</h3>"
 
 # 404 全局防呆兜底：任何错误地址直接跳回官网首页
 @app.exception_handler(StarletteHTTPException)
