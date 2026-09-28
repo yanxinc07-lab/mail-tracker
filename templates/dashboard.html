@@ -6,17 +6,19 @@
   <title>达人邮件追踪大盘 — 雨过天青</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     /* ================= 1. 雨过天青·淡玉宣纸底色 ================= */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100%;
       min-height: 100vh;
-      background: #F4F7F5; /* 柔和浅玉灰，消灭刺眼日光灯感 */
-      color: #24332C;      /* 松烟墨色 */
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+      background: #F4F7F5;
+      color: #24332C;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, "PingFang SC", sans-serif;
       -webkit-font-smoothing: antialiased;
+      font-variant-numeric: normal; /* 严格禁用斜杠零 */
     }
 
     .container {
@@ -25,7 +27,7 @@
       padding: 40px 28px 80px;
     }
 
-    /* 顶栏：素雅留白 */
+    /* 顶栏 */
     .header {
       display: flex;
       justify-content: space-between;
@@ -51,7 +53,7 @@
     .btn-download {
       padding: 7px 18px;
       border-radius: 999px;
-      background: #2D6A4F; /* 远山松青 */
+      background: #2D6A4F;
       color: #ffffff;
       font-size: 13px;
       font-weight: 500;
@@ -72,7 +74,7 @@
     }
     .btn-logout:hover { color: #c0392b; border-color: #c0392b; }
 
-    /* 筛选器：无生硬边框的极简素雅标签 */
+    /* 筛选器 */
     .filter-bar {
       display: flex;
       align-items: center;
@@ -120,8 +122,17 @@
       color: #24332C;
       font-family: inherit;
     }
+    .btn-filter-date {
+      background: #2D6A4F;
+      color: #fff;
+      border: none;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
 
-    /* 核心指标卡：温润白玉质感 */
+    /* 指标卡 */
     .metrics-row {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -146,11 +157,12 @@
       font-weight: 700;
       color: #19241F;
       letter-spacing: -0.02em;
+      font-variant-numeric: normal;
     }
     .val-bamboo { color: #2D6A4F; }
     .val-celadon { color: #1E5F74; }
 
-    /* ================= 2. 舒缓减压的明细列表 ================= */
+    /* 列表 */
     .table-container {
       background: #FFFFFF;
       border-radius: 18px;
@@ -181,7 +193,7 @@
       border-bottom: 1px solid rgba(36, 51, 44, 0.05);
     }
     td {
-      padding: 20px 28px;
+      padding: 18px 28px;
       border-bottom: 1px solid rgba(36, 51, 44, 0.04);
       font-size: 14px;
       vertical-align: middle;
@@ -190,7 +202,6 @@
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #FAFBF9; }
 
-    /* 达人信息与主题 */
     .subject-text {
       font-weight: 600;
       color: #19241F;
@@ -204,13 +215,15 @@
       align-items: center;
       gap: 6px;
     }
+    /* 时间文本：纯净圆润无斜杠零 */
     .time-text {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 13px;
-      color: #829288;
+      color: #7A8C81;
+      letter-spacing: 0.01em;
+      font-variant-numeric: normal;
     }
 
-    /* 状态下拉胶囊（告别冰冷灰框） */
     .status-select {
       appearance: none;
       -webkit-appearance: none;
@@ -224,28 +237,31 @@
       background-repeat: no-repeat;
       background-position: right 10px center;
       background-size: 8px;
-      /* 极简下箭头 */
+      font-variant-numeric: normal;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23617369' d='m0 2 4 4 4-4z'/%3E%3C/svg%3E");
     }
-    /* 未读：素雅浮云灰，退入背景，不给心理压力 */
     .status-unread {
       background-color: #F1F4F2;
       color: #6E7E74;
       border-color: rgba(36, 51, 44, 0.06);
     }
-    /* 已读：温润竹青色微光，突出积极进展 */
     .status-read {
       background-color: rgba(45, 106, 79, 0.08);
       color: #2D6A4F;
       border-color: rgba(45, 106, 79, 0.2);
       font-weight: 600;
     }
-    /* 已建联：晴水青 */
     .status-connected {
       background-color: rgba(30, 95, 116, 0.08);
       color: #1E5F74;
       border-color: rgba(30, 95, 116, 0.2);
       font-weight: 600;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #8A9A90;
+      font-size: 14px;
     }
 
     @media (max-width: 860px) {
@@ -262,7 +278,7 @@
       <div class="brand-title">达人邮件追踪大盘</div>
       <div class="user-info">
         <a href="/api/download_extension" class="btn-download">下载插件</a>
-        <span id="userEmailTag">yanxinc07@gmail.com</span>
+        <span id="userEmailTag">加载中...</span>
         <button class="btn-logout" onclick="handleLogout()">退出</button>
       </div>
     </header>
@@ -280,21 +296,22 @@
         <input type="date" id="startDate" class="date-input">
         <span>至</span>
         <input type="date" id="endDate" class="date-input">
+        <button class="btn-filter-date" onclick="applyCustomFilter()">筛选历史</button>
       </div>
     </div>
 
     <div class="metrics-row">
       <div class="metric-card">
         <div class="metric-name">总发信量</div>
-        <div class="metric-val" id="totalSent">179</div>
+        <div class="metric-val" id="totalSent">0</div>
       </div>
       <div class="metric-card">
         <div class="metric-name">真人有效打开数</div>
-        <div class="metric-val val-bamboo" id="realOpens">79</div>
+        <div class="metric-val val-bamboo" id="realOpens">0</div>
       </div>
       <div class="metric-card">
         <div class="metric-name">真实打开率</div>
-        <div class="metric-val val-celadon" id="openRate">44.1%</div>
+        <div class="metric-val val-celadon" id="openRate">0.0%</div>
       </div>
     </div>
 
@@ -310,87 +327,121 @@
           </tr>
         </thead>
         <tbody id="mailTableBody">
-          <!-- 默认回显真实样例，后端接口打通后自动平滑覆盖 -->
-          <tr>
-            <td>
-              <div class="subject-text">Staceyann — 20% Commission | Home Odor Product with a Strong Visual Hook 👀</div>
-              <div class="recipient-text">👤 creatorstace@gmail.com</div>
-            </td>
-            <td class="time-text">2026-09-24 18:00:13</td>
-            <td>
-              <select class="status-select status-unread" onchange="handleStatusStyle(this)">
-                <option selected>未读 (0次)</option>
-                <option>已读</option>
-                <option>已建联</option>
-              </select>
-            </td>
-            <td class="time-text">-</td>
-          </tr>
-          <tr>
-            <td>
-              <div class="subject-text">Dee ✨ — 20% Commission | Home Odor Product with a Strong Visual Hook 👀</div>
-              <div class="recipient-text">👤 deeftm@yahoo.com</div>
-            </td>
-            <td class="time-text">2026-09-24 17:57:02</td>
-            <td>
-              <select class="status-select status-unread" onchange="handleStatusStyle(this)">
-                <option selected>未读 (0次)</option>
-                <option>已读</option>
-                <option>已建联</option>
-              </select>
-            </td>
-            <td class="time-text">-</td>
-          </tr>
-          <tr>
-            <td>
-              <div class="subject-text">Sam Marie — 20% Commission | Home Odor Product with a Strong Visual Hook 👀</div>
-              <div class="recipient-text">👤 sam.marketing@gmail.com</div>
-            </td>
-            <td class="time-text">2026-09-24 17:01:21</td>
-            <td>
-              <select class="status-select status-read" onchange="handleStatusStyle(this)">
-                <option>未读</option>
-                <option selected>已读 (2次)</option>
-                <option>已建联</option>
-              </select>
-            </td>
-            <td class="time-text">2026-09-24 17:35:10</td>
-          </tr>
+          <tr><td colspan="4" class="empty-state">正在同步水下信号...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
   <script>
-    // 动态同步后端数据接口
-    async function loadStats() {
+    let currentFilter = 'all';
+
+    function checkAuth() {
+      const email = localStorage.getItem('user_email') || 'yanxinc07@gmail.com';
+      document.getElementById('userEmailTag').textContent = email;
+    }
+
+    async function fetchDashboardData(params = '') {
+      try {
+        let url = '/api/dashboard_data';
+        if (params) url += '?' + params;
+        else if (currentFilter) url += '?filter=' + currentFilter;
+
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('totalSent').textContent = data.total_sent || 0;
+          document.getElementById('realOpens').textContent = data.real_opens || 0;
+          document.getElementById('openRate').textContent = (data.open_rate || 0) + '%';
+          renderTable(data.records || []);
+        } else {
+          fetchBackupData();
+        }
+      } catch (err) {
+        fetchBackupData();
+      }
+    }
+
+    async function fetchBackupData() {
       try {
         const res = await fetch('/api/dashboard_stats');
         if (res.ok) {
           const data = await res.json();
-          if (data.total_sent !== undefined) document.getElementById('totalSent').textContent = data.total_sent;
-          if (data.real_opens !== undefined) document.getElementById('realOpens').textContent = data.real_opens;
-          if (data.open_rate !== undefined) document.getElementById('openRate').textContent = data.open_rate + '%';
+          document.getElementById('totalSent').textContent = data.total_sent || 0;
+          document.getElementById('realOpens').textContent = data.real_opens || 0;
+          document.getElementById('openRate').textContent = (data.open_rate || 0) + '%';
+          renderTable(data.records || []);
         }
       } catch (e) {
-        console.log('Using static preview data');
+        document.getElementById('mailTableBody').innerHTML = '<tr><td colspan="4" class="empty-state">暂无发信记录</td></tr>';
       }
     }
 
-    function handleStatusStyle(el) {
-      el.classList.remove('status-unread', 'status-read', 'status-connected');
-      if (el.value.includes('已读')) {
-        el.classList.add('status-read');
-      } else if (el.value.includes('建联')) {
-        el.classList.add('status-connected');
-      } else {
-        el.classList.add('status-unread');
+    function renderTable(records) {
+      const tbody = document.getElementById('mailTableBody');
+      if (!records || records.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">该时间段内暂无发信记录</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = records.map(r => {
+        let statusClass = 'status-unread';
+        let statusText = r.status || '未读';
+        if (statusText.includes('已读') || (r.read_count && r.read_count > 0)) {
+          statusClass = 'status-read';
+        } else if (statusText.includes('建联')) {
+          statusClass = 'status-connected';
+        }
+
+        const readCountStr = r.read_count ? ` (${r.read_count}次)` : ' (0次)';
+
+        return `
+          <tr>
+            <td>
+              <div class="subject-text">${escapeHtml(r.subject || '无主题')}</div>
+              <div class="recipient-text">👤 ${escapeHtml(r.recipient || '-')}</div>
+            </td>
+            <td class="time-text">${r.sent_at || '-'}</td>
+            <td>
+              <select class="status-select ${statusClass}" onchange="changeStatus('${r.id}', this)">
+                <option value="未读" ${statusText === '未读' ? 'selected' : ''}>未读${readCountStr}</option>
+                <option value="已读" ${statusText === '已读' ? 'selected' : ''}>已读</option>
+                <option value="已建联" ${statusText === '已建联' ? 'selected' : ''}>已建联</option>
+              </select>
+            </td>
+            <td class="time-text">${r.first_opened || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function changeStatus(id, selectEl) {
+      const newStatus = selectEl.value;
+      selectEl.className = 'status-select ' + (newStatus === '已读' ? 'status-read' : (newStatus === '已建联' ? 'status-connected' : 'status-unread'));
+      try {
+        await fetch('/api/update_status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, status: newStatus })
+        });
+      } catch (err) {
+        console.error('更新状态失败', err);
       }
     }
 
-    function setTimeFilter(type, el) {
-      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+    function setTimeFilter(filter, el) {
+      document.querySelectorAll('.filter-pill').forEach(btn => btn.classList.remove('active'));
       el.classList.add('active');
+      currentFilter = filter;
+      fetchDashboardData('filter=' + filter);
+    }
+
+    function applyCustomFilter() {
+      const start = document.getElementById('startDate').value;
+      const end = document.getElementById('endDate').value;
+      if (!start || !end) return;
+      document.querySelectorAll('.filter-pill').forEach(btn => btn.classList.remove('active'));
+      fetchDashboardData(`start_date=${start}&end_date=${end}`);
     }
 
     function handleLogout() {
@@ -398,7 +449,16 @@
       window.location.href = '/';
     }
 
-    window.onload = loadStats;
+    function escapeHtml(text) {
+      return text.replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
+    window.onload = function() {
+      checkAuth();
+      fetchDashboardData();
+    };
   </script>
 </body>
 </html>
