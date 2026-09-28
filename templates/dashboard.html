@@ -24,6 +24,32 @@
             position: relative;
             overflow-x: hidden;
         }
+        /* 顶部回廊导航药丸 */
+.top-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 18px;
+}
+.nav-link-pill {
+    text-decoration: none;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #5E7267;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(36, 51, 44, 0.08);
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.nav-link-pill:hover {
+    color: #17221C;
+    background: #FFFFFF;
+    box-shadow: 0 2px 6px rgba(36, 51, 44, 0.06);
+}
 
         /* 纯代码轻量宣纸纤维噪点层 */
         body::before {
@@ -688,7 +714,13 @@
 
     <div class="container" id="mainContainer">
         <div class="header-box">
-            <div class="header">达人邮件追踪大盘</div>
+            <div style="display: flex; align-items: center;">
+    <div class="header">达人邮件追踪大盘</div>
+    <div class="top-nav-group">
+        <a href="/" class="nav-link-pill">🌊 官网首页</a>
+        <a href="/outreach" class="nav-link-pill">🚀 批量触达</a>
+    </div>
+</div>
             <div class="user-info">
                 <a href="/api/download_extension" class="download-btn">📥 下载插件包</a>
                 <span>当前账号: <b id="userEmailText" style="color: #17221C;">-</b></span>
