@@ -1,88 +1,374 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>批量触达工作台 — 雨过天青</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            width: 100%;
-            min-height: 100vh;
-            background-color: #F3F6F4;
-            color: #202D26;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, sans-serif;
-            padding: 40px 24px;
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>批量触达工作台 — MailTracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background-color: #F3F6F4;
+      color: #202D26;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 36px 24px 80px;
+    }
+    .header-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .title {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #17221C;
+    }
+    .nav-links { display: flex; gap: 8px; }
+    .nav-btn {
+      text-decoration: none;
+      padding: 7px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5E7267;
+      background: #FFFFFF;
+      border: 1px solid rgba(36, 51, 44, 0.1);
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .nav-btn:hover { background: #EAEFEA; color: #17221C; }
+    .nav-btn.active {
+      background: #2D6A4F;
+      color: #FFFFFF;
+      border-color: #2D6A4F;
+    }
+
+    .card {
+      background: #FFFFFF;
+      border-radius: 18px;
+      padding: 28px;
+      border: 1px solid rgba(36, 51, 44, 0.06);
+      box-shadow: 0 4px 20px rgba(36, 51, 44, 0.03);
+      margin-bottom: 24px;
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #17221C;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #5E7267;
+    }
+    .form-input, .form-textarea {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(36, 51, 44, 0.12);
+      background: #FAFBF9;
+      font-size: 13px;
+      color: #202D26;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus, .form-textarea:focus {
+      border-color: #2D6A4F;
+      background: #FFFFFF;
+    }
+    .form-textarea { resize: vertical; min-height: 140px; font-family: inherit; line-height: 1.6; }
+
+    /* 文件上传拖拽框 */
+    .dropzone {
+      border: 2px dashed rgba(45, 106, 79, 0.3);
+      background: #FAFBF9;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .dropzone:hover {
+      background: #F1F6F3;
+      border-color: #2D6A4F;
+    }
+
+    /* 预览表格 */
+    .table-wrapper {
+      max-height: 220px;
+      overflow-y: auto;
+      margin-top: 14px;
+      border: 1px solid rgba(36, 51, 44, 0.08);
+      border-radius: 10px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    th { background: #F8FAF9; padding: 10px 12px; color: #5E7267; position: sticky; top: 0; }
+    td { padding: 8px 12px; border-top: 1px solid rgba(36, 51, 44, 0.05); color: #202D26; }
+
+    /* 发信提交按钮 */
+    .btn-submit {
+      width: 100%;
+      padding: 14px 0;
+      background: #2D6A4F;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(45, 106, 79, 0.25);
+      transition: 0.2s;
+      margin-top: 8px;
+    }
+    .btn-submit:hover { background: #245841; }
+    .btn-submit:disabled { background: #A3B8AD; cursor: not-allowed; }
+
+    .help-hint {
+      font-size: 11px;
+      color: #8C9C92;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+  </style>
+
+  <script>
+    const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZXFocXVvcmp5Y2pkeGJ1cnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTY5MjUsImV4cCI6MjEwNTE5MjkyNX0.JzTkH-xoiExeSxHGu420PgVfUNV_Jp_zZoJQn3yqY2g";
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let currentUser = null;
+    let parsedRecipients = [];
+
+    // 初始化验证登录态
+    async function initAuth() {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session || !session.user) {
+        alert("请先登录账号后进入工作台！");
+        window.location.href = "/";
+        return;
+      }
+      currentUser = session.user;
+    }
+
+    // 解析上传的 Excel / CSV
+    function handleFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        parsedRecipients = XLSX.utils.sheet_to_json(worksheet);
+
+        renderPreview();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // 渲染预览表格
+    function renderPreview() {
+      const box = document.getElementById("tableBox");
+      const info = document.getElementById("uploadInfo");
+      if (parsedRecipients.length === 0) {
+        box.style.display = "none";
+        info.innerText = "未识别到有效数据";
+        return;
+      }
+
+      info.innerHTML = `已成功解析 <b>${parsedRecipients.length}</b> 位收件人数据：`;
+      const keys = Object.keys(parsedRecipients[0]);
+      let tableHtml = `<table><thead><tr>`;
+      keys.forEach(k => tableHtml += `<th>${k}</th>`);
+      tableHtml += `</tr></thead><tbody>`;
+
+      parsedRecipients.slice(0, 5).forEach(row => {
+        tableHtml += `<tr>`;
+        keys.forEach(k => tableHtml += `<td>${row[k] || ''}</td>`);
+        tableHtml += `</tr>`;
+      });
+      tableHtml += `</tbody></table>`;
+      box.innerHTML = tableHtml;
+      box.style.display = "block";
+    }
+
+    // 呼叫后端发信引擎
+    async function startBatchSend() {
+      if (!currentUser) {
+        alert("请先登录账号！");
+        return;
+      }
+      if (!parsedRecipients || parsedRecipients.length === 0) {
+        alert("请先上传包含收件人邮箱的表格！");
+        return;
+      }
+
+      const smtpAccount = document.getElementById("smtpAccount")?.value?.trim();
+      const smtpPassword = document.getElementById("smtpPassword")?.value?.trim();
+      const emailSubject = document.getElementById("emailSubject")?.value?.trim();
+      const emailTemplate = document.getElementById("emailBody")?.value?.trim();
+
+      if (!smtpAccount || !smtpPassword) {
+        alert("请填写发信邮箱和应用专用密码（授权码）！");
+        return;
+      }
+      if (!emailSubject || !emailTemplate) {
+        alert("请填写邮件主题与邮件正文！");
+        return;
+      }
+
+      const sendBtn = document.getElementById("btnStartOutreach");
+      sendBtn.disabled = true;
+      sendBtn.innerText = "⏳ 正在批量发信并植入追踪像素，请稍候...";
+
+      // 组装发送队列（支持动态变量替换，如 {{name}}）
+      const payloadList = parsedRecipients.map(row => {
+        let content = emailTemplate;
+        let subject = emailSubject;
+        for (const [key, val] of Object.entries(row)) {
+          const reg = new RegExp(`{{${key}}}`, "gi");
+          content = content.replace(reg, val || "");
+          subject = subject.replace(reg, val || "");
         }
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
+        return {
+          to_email: row.email || row["邮箱"] || row["收件人"] || row["Email"] || "",
+          subject: subject,
+          content: content.replace(/\n/g, "<br>")
+        };
+      }).filter(item => item.to_email && item.to_email.includes("@"));
+
+      if (payloadList.length === 0) {
+        alert("未从表格中识别到有效的邮箱列（表头需包含 email 或 邮箱 列名）！");
+        sendBtn.disabled = false;
+        sendBtn.innerText = "🚀 开始批量触达";
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/send_batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_email: currentUser.email,
+            smtp_account: smtpAccount,
+            smtp_password: smtpPassword,
+            emails: payloadList
+          })
+        });
+
+        const result = await res.json();
+        if (result.success) {
+          alert(`🎉 触达完成！成功发出: ${result.sent_count} 封，失败: ${result.failed_count} 封。\n所有开信数据将实时汇入大盘！`);
+          window.location.href = "/dashboard";
+        } else {
+          alert("发信中断: " + result.message);
         }
-        .header-box {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid rgba(36, 51, 44, 0.08);
-        }
-        .title {
-            font-family: 'Noto Serif SC', serif;
-            font-size: 22px;
-            font-weight: 700;
-            color: #17221C;
-        }
-        .nav-links {
-            display: flex;
-            gap: 12px;
-        }
-        .nav-btn {
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 500;
-            color: #64756B;
-            background: rgba(255, 255, 255, 0.6);
-            border: 1px solid rgba(36, 51, 44, 0.08);
-            transition: 0.2s;
-        }
-        .nav-btn:hover { color: #17221C; background: #FFFFFF; }
-        .nav-btn.active {
-            background: #2D6A4F;
-            color: #FFFFFF;
-            border-color: #2D6A4F;
-        }
-        .card {
-            background: #FFFFFF;
-            border-radius: 18px;
-            padding: 36px;
-            border: 1px solid rgba(36, 51, 44, 0.06);
-            box-shadow: 0 8px 24px rgba(36, 51, 44, 0.03);
-            text-align: center;
-            color: #72847A;
-            font-size: 15px;
-        }
-    </style>
+      } catch (err) {
+        alert("请求异常: " + err.message);
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerText = "🚀 开始批量触达";
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', initAuth);
+  </script>
 </head>
 <body>
-    <div class="container">
-        <div class="header-box">
-            <div class="title">🚀 批量触达工作台</div>
-            <div class="nav-links">
-    <a href="/" class="nav-btn">🌊 官网首页</a>
-    <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
-    <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
-</div>
-        </div>
 
-        <div class="card">
-            <h3 style="color:#17221C; margin-bottom:10px;">新房间已成功开启！</h3>
-            <p>这里将专门用来导入达人表格、配置 A/B 账号轮发，绝不影响原本的追踪大盘。</p>
-        </div>
+  <div class="container">
+    <!-- 顶部全向回廊导航 -->
+    <div class="header-box">
+      <div class="title">🚀 批量触达工作台</div>
+      <div class="nav-links">
+        <a href="/" class="nav-btn">🌊 官网首页</a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
+        <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
+      </div>
     </div>
+
+    <!-- 1. 发信服务器设置 -->
+    <div class="card">
+      <div class="section-title">⚙️ 发件箱配置 (SMTP)</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">发信邮箱</label>
+          <input type="email" id="smtpAccount" class="form-input" placeholder="例如：your_name@gmail.com" />
+          <span class="help-hint">支持 Gmail、Outlook、163 或企业自定义域名邮箱</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">应用专用密码 / SMTP 授权码</label>
+          <input type="password" id="smtpPassword" class="form-input" placeholder="16 位专用密码或授权码" />
+          <span class="help-hint">Gmail 需在 Google 账户“安全性”中生成 16 位「应用专用密码」</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 表格导入与预览 -->
+    <div class="card">
+      <div class="section-title">📁 导入达人 / 客户名单</div>
+      <div class="dropzone" onclick="document.getElementById('excelFileInput').click()">
+        <p style="font-size:14px; font-weight:600; color:#2D6A4F;">点击或将 Excel / CSV 文件拖到此处</p>
+        <p class="help-hint" style="margin-top:6px;">支持 .xlsx, .xls, .csv 格式，表头需包含「邮箱」或「email」列</p>
+        <input type="file" id="excelFileInput" style="display:none;" accept=".xlsx, .xls, .csv" onchange="handleFile(event)" />
+      </div>
+      <div id="uploadInfo" style="margin-top:12px; font-size:13px; color:#5E7267;"></div>
+      <div id="tableBox" class="table-wrapper" style="display:none;"></div>
+    </div>
+
+    <!-- 3. 内容与变量定制 -->
+    <div class="card">
+      <div class="section-title">✍️ 邮件内容拟定</div>
+      <div class="form-group">
+        <label class="form-label">邮件主题</label>
+        <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属合作邀请" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">邮件正文（支持 HTML 与个性化变量）</label>
+        <textarea id="emailBody" class="form-textarea" placeholder="Hi {{name}},
+
+注意到你在 {{平台}} 上的优质内容，我们非常期待与你合作！
+...
+
+祝商祺"></textarea>
+        <span class="help-hint">可在正文中使用大括号包裹表格中的表头名（如 {{name}}），系统会自动为每位收件人个性化替换</span>
+      </div>
+
+      <button id="btnStartOutreach" class="btn-submit" onclick="startBatchSend()">🚀 开始批量触达</button>
+    </div>
+  </div>
+
 </body>
 </html>
