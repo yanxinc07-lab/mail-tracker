@@ -507,3 +507,99 @@ def get_dashboard_data(time_range: str = "all", custom_start: str = "", custom_e
         "total_opened": total_opened,
         "rate": rate
     }
+    # ================= 批量触达与像素自动植入引擎 =================
+import smtplib
+import uuid
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pydantic import BaseModel
+from typing import List
+
+class SingleEmailPayload(BaseModel):
+    to_email: str
+    subject: str
+    content: str
+
+class BatchSendRequest(BaseModel):
+    user_email: str
+    smtp_account: str
+    smtp_password: str
+    emails: List[SingleEmailPayload]
+
+@app.post("/api/send_batch")
+async def send_batch(req: BatchSendRequest):
+    sent_count = 0
+    failed_count = 0
+    errors = []
+
+    # 1. 自动适配主流 SMTP 服务器（Gmail / Outlook / 企业邮箱）
+    sender_domain = req.smtp_account.split("@")[-1].lower()
+    if "gmail.com" in sender_domain:
+        smtp_host = "smtp.gmail.com"
+        smtp_port = 587
+    elif "outlook.com" in sender_domain or "hotmail.com" in sender_domain:
+        smtp_host = "smtp.office365.com"
+        smtp_port = 587
+    elif "163.com" in sender_domain:
+        smtp_host = "smtp.163.com"
+        smtp_port = 465
+    elif "qq.com" in sender_domain:
+        smtp_host = "smtp.qq.com"
+        smtp_port = 465
+    else:
+        smtp_host = f"smtp.{sender_domain}"
+        smtp_port = 587
+
+    # 2. 建立发信长连接
+    try:
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+            server.starttls()
+        server.login(req.smtp_account, req.smtp_password)
+    except Exception as e:
+        return {"success": False, "message": f"发信邮箱登录失败: {str(e)}"}
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # 3. 逐封自动植入隐形追踪像素并发送
+    for item in req.emails:
+        try:
+            track_id = str(uuid.uuid4())
+            # 植入 1 像素隐形透明图
+            pixel_html = f'<img src="https://mail-tracker-e7da.onrender.com/track/{track_id}" width="1" height="1" style="display:none !important;" />'
+            html_body = f"{item.content}<br><br>{pixel_html}"
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = item.subject
+            msg["From"] = req.smtp_account
+            msg["To"] = item.to_email
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            server.sendmail(req.smtp_account, [item.to_email], msg.as_string())
+
+            # 写入追踪数据库，大盘立刻可见
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cur.execute("""
+                INSERT INTO emails (id, user_email, to_email, subject, send_time, status)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (track_id, req.user_email, item.to_email, item.subject, now_str, "未读"))
+
+            sent_count += 1
+        except Exception as err:
+            failed_count += 1
+            errors.append(f"{item.to_email}: {str(err)}")
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    server.quit()
+
+    return {
+        "success": True,
+        "sent_count": sent_count,
+        "failed_count": failed_count,
+        "errors": errors
+    }
