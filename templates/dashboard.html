@@ -6,7 +6,7 @@
     <title>达人邮件追踪大盘 — 雨过天青</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -212,7 +212,7 @@
         }
         .card-title {
             font-size: 13px;
-            color: #5E7267; /* 沉静青灰，清晰不刺眼 */
+            color: #5E7267;
             margin-bottom: 12px;
             font-weight: 600;
             letter-spacing: 0.03em;
@@ -224,12 +224,10 @@
             letter-spacing: -0.02em;
             font-variant-numeric: normal;
         }
-        /* 真人有效打开：温润竹青光泽 */
         .val-opened {
             color: #2D6A4F !important;
             text-shadow: 0 2px 10px rgba(45, 106, 79, 0.12);
         }
-        /* 真实打开率：晴水黛青 */
         .val-rate {
             color: #1D5C6F !important;
         }
@@ -275,7 +273,6 @@
             font-variant-numeric: normal;
         }
         tr:last-child td { border-bottom: none !important; }
-        /* 悬停如清水掠宣纸 */
         tr:hover td { 
             background: rgba(237, 243, 240, 0.6); 
         }
@@ -313,8 +310,17 @@
             font-weight: 600;
         }
 
+        /* 雅致化折页弹窗 (时间轴与修改菜单) */
+        .popup-panel {
+            background: rgba(255, 255, 255, 0.98) !important;
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(45, 106, 79, 0.15) !important;
+            border-radius: 14px !important;
+            box-shadow: 0 16px 36px rgba(36, 51, 44, 0.1) !important;
+        }
+
         .menu-item {
-            padding: 9px 14px;
+            padding: 10px 16px;
             font-size: 12px;
             cursor: pointer;
             transition: 0.2s;
@@ -510,8 +516,8 @@
                 itemLogs.forEach((l, idx) => {
                     const tag = l.is_scanner ? '<span style="color:#d97706; font-size:11px; margin-left:4px;">(系统扫)</span>' : '';
                     timelineItems += `
-                    <div id="log-row-${l.log_id}" style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; font-size:12px; border-bottom:1px dashed rgba(36,51,44,0.08);">
-                        <span>#${idx+1} ${l.open_time}${tag}</span>
+                    <div id="log-row-${l.log_id}" style="display:flex; justify-content:space-between; align-items:center; padding:9px 0; font-size:12px; border-bottom:1px dashed rgba(36,51,44,0.08);">
+                        <span style="color:#202D26;">#${idx+1} ${l.open_time}${tag}</span>
                         <a href="javascript:void(0)" onclick="deleteLog(${l.log_id}, '${emailId}')" style="color:#ef4444; text-decoration:none; margin-left:12px; font-size:11px;">删除</a>
                     </div>`;
                 });
@@ -522,7 +528,7 @@
                     <span id="log-count-btn-${emailId}" style="font-size:11px; color:#2D6A4F; cursor:pointer; margin-left:6px; user-select:none; font-weight:600;" onclick="toggleLogs(event, '${emailId}')">
                         (共${logCount}次 ▾)
                     </span>
-                    <div id="logs-${emailId}" class="popup-panel" style="display:none; position:absolute; z-index:100; background:#fff; border:1px solid rgba(36,51,44,0.08); border-radius:12px; box-shadow:0 12px 30px rgba(36,51,44,0.08); padding:14px 16px; width:290px; margin-top:6px;">
+                    <div id="logs-${emailId}" class="popup-panel" style="display:none; position:absolute; z-index:100; padding:14px 16px; width:290px; margin-top:8px;">
                         <div style="font-weight:600; font-size:12px; margin-bottom:8px; color:#17221C; border-bottom:1px solid rgba(36,51,44,0.06); padding-bottom:6px;">打开时间轴流水</div>
                         <div id="log-list-${emailId}">
                             ${timelineItems || '<div style="font-size:12px; color:#8A9A90;">暂无流水明细</div>'}
@@ -545,10 +551,10 @@
                             <button id="btn-${emailId}" onclick="toggleMenu(event, '${emailId}')" class="status-btn ${badgeClass}">
                                 <span id="txt-${emailId}">${r.status} (${logCount}次)</span> ▾
                             </button>
-                            <div id="menu-${emailId}" class="popup-panel menu-box" style="display:none; position:absolute; z-index:100; left:0; margin-top:6px; background:#fff; border:1px solid rgba(36,51,44,0.08); border-radius:10px; box-shadow:0 10px 24px rgba(36,51,44,0.08); width:110px; overflow:hidden;">
-                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '已读', ${logCount})" style="color:#2D6A4F;">标为已读</div>
-                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '误扫', ${logCount})" style="color:#92400e; border-top:1px solid rgba(36,51,44,0.05);">标为误扫</div>
-                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '未读', ${logCount})" style="color:#6C7D73; border-top:1px solid rgba(36,51,44,0.05);">标为未读</div>
+                            <div id="menu-${emailId}" class="popup-panel menu-box" style="display:none; position:absolute; z-index:100; left:0; margin-top:8px; width:114px; overflow:hidden;">
+                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '已读', ${logCount})" style="color:#2D6A4F; font-weight:500;">标为已读</div>
+                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '误扫', ${logCount})" style="color:#92400e; border-top:1px solid rgba(36,51,44,0.05); font-weight:500;">标为误扫</div>
+                                <div class="menu-item" onclick="setStatus(event, '${emailId}', '未读', ${logCount})" style="color:#6C7D73; border-top:1px solid rgba(36,51,44,0.05); font-weight:500;">标为未读</div>
                             </div>
                         </div>
                     </td>
