@@ -73,13 +73,43 @@
       margin-bottom: 16px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: space-between;
     }
-    .form-grid {
+    .btn-add-account {
+      padding: 5px 12px;
+      background: rgba(45, 106, 79, 0.1);
+      border: 1px solid rgba(45, 106, 79, 0.2);
+      border-radius: 8px;
+      color: #2D6A4F;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .btn-add-account:hover { background: rgba(45, 106, 79, 0.2); }
+
+    .account-row {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      grid-template-columns: 1fr 1fr 40px;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
     }
+    .btn-del-account {
+      height: 38px;
+      border: none;
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
+    }
+    .btn-del-account:hover { background: rgba(239, 68, 68, 0.2); }
+
     .form-group {
       display: flex;
       flex-direction: column;
@@ -169,7 +199,7 @@
     let currentUser = null;
     let parsedRecipients = [];
 
-    // 初始化验证登录态
+    // 初始化验证登录态并恢复已存账号
     async function initAuth() {
       const { data: { session } } = await client.auth.getSession();
       if (!session || !session.user) {
@@ -178,6 +208,57 @@
         return;
       }
       currentUser = session.user;
+      loadSavedAccounts();
+    }
+
+    // 动态添加发信账号行
+    function addAccountRow(emailVal = "", passVal = "") {
+      const list = document.getElementById("accountsList");
+      const div = document.createElement("div");
+      div.className = "account-row";
+      div.innerHTML = `
+        <input type="text" class="form-input acc-email" placeholder="发信邮箱 (如 name@gmail.com)" value="${emailVal}" autocomplete="off" />
+        <input type="password" class="form-input acc-pass" placeholder="16位专用授权码" value="${passVal}" autocomplete="new-password" />
+        <button class="btn-del-account" title="删除该账号" onclick="removeAccountRow(this)">✕</button>
+      `;
+      list.appendChild(div);
+    }
+
+    function removeAccountRow(btn) {
+      const list = document.getElementById("accountsList");
+      if (list.children.length <= 1) {
+        alert("至少需要保留一个发信邮箱配置！");
+        return;
+      }
+      btn.parentElement.remove();
+    }
+
+    // 本地存储保存/读取发信账号
+    function saveAccountsLocally() {
+      const rows = document.querySelectorAll(".account-row");
+      const accs = [];
+      rows.forEach(r => {
+        const em = r.querySelector(".acc-email").value.trim();
+        const pw = r.querySelector(".acc-pass").value.trim();
+        if (em && pw) accs.push({ email: em, pass: pw });
+      });
+      localStorage.setItem("mailtracker_smtp_accs", JSON.stringify(accs));
+    }
+
+    function loadSavedAccounts() {
+      const saved = localStorage.getItem("mailtracker_smtp_accs");
+      const list = document.getElementById("accountsList");
+      list.innerHTML = "";
+      if (saved) {
+        try {
+          const accs = JSON.parse(saved);
+          if (accs.length > 0) {
+            accs.forEach(a => addAccountRow(a.email, a.pass));
+            return;
+          }
+        } catch(e) {}
+      }
+      addAccountRow(); // 默认给一行
     }
 
     // 解析上传的 Excel / CSV
@@ -235,15 +316,26 @@
         return;
       }
 
-      const smtpAccount = document.getElementById("smtpAccount")?.value?.trim();
-      const smtpPassword = document.getElementById("smtpPassword")?.value?.trim();
+      // 获取所有配置的可用发信账号
+      const rows = document.querySelectorAll(".account-row");
+      const availableAccounts = [];
+      rows.forEach(r => {
+        const em = r.querySelector(".acc-email").value.trim();
+        const pw = r.querySelector(".acc-pass").value.trim();
+        if (em && pw) availableAccounts.push({ email: em, pass: pw });
+      });
+
+      if (availableAccounts.length === 0) {
+        alert("请至少配置一个发信邮箱及其授权码！");
+        return;
+      }
+
+      // 顺手记住账号配置到本地，下次免填
+      saveAccountsLocally();
+
       const emailSubject = document.getElementById("emailSubject")?.value?.trim();
       const emailTemplate = document.getElementById("emailBody")?.value?.trim();
 
-      if (!smtpAccount || !smtpPassword) {
-        alert("请填写发信邮箱和应用专用密码（授权码）！");
-        return;
-      }
       if (!emailSubject || !emailTemplate) {
         alert("请填写邮件主题与邮件正文！");
         return;
@@ -251,7 +343,7 @@
 
       const sendBtn = document.getElementById("btnStartOutreach");
       sendBtn.disabled = true;
-      sendBtn.innerText = "⏳ 正在批量发信并植入追踪像素，请稍候...";
+      sendBtn.innerText = "⏳ 正在多账号轮换发信并植入追踪，请勿关闭页面...";
 
       // 组装发送队列（支持动态变量替换，如 {{name}}）
       const payloadList = parsedRecipients.map(row => {
@@ -276,31 +368,39 @@
         return;
       }
 
-      try {
-        const res = await fetch("/api/send_batch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_email: currentUser.email,
-            smtp_account: smtpAccount,
-            smtp_password: smtpPassword,
-            emails: payloadList
-          })
-        });
+      let totalSent = 0;
+      let totalFailed = 0;
 
-        const result = await res.json();
-        if (result.success) {
-          alert(`🎉 触达完成！成功发出: ${result.sent_count} 封，失败: ${result.failed_count} 封。\n所有开信数据将实时汇入大盘！`);
-          window.location.href = "/dashboard";
-        } else {
-          alert("发信中断: " + result.message);
+      // 前端多账号平滑轮换分批发送
+      for (let i = 0; i < payloadList.length; i++) {
+        const currentAccount = availableAccounts[i % availableAccounts.length];
+        const targetEmail = payloadList[i];
+
+        try {
+          const res = await fetch("/api/send_batch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_email: currentUser.email,
+              smtp_account: currentAccount.email,
+              smtp_password: currentAccount.pass,
+              emails: [targetEmail]
+            })
+          });
+          const result = await res.json();
+          if (result.success && result.sent_count > 0) {
+            totalSent++;
+          } else {
+            totalFailed++;
+          }
+        } catch (err) {
+          totalFailed++;
         }
-      } catch (err) {
-        alert("请求异常: " + err.message);
-      } finally {
-        sendBtn.disabled = false;
-        sendBtn.innerText = "🚀 开始批量触达";
+        sendBtn.innerText = `⏳ 发信中 (${i + 1}/${payloadList.length}) 轮换中...`;
       }
+
+      alert(`🎉 触达完成！已用 ${availableAccounts.length} 个账号轮换发送。\n成功: ${totalSent} 封，失败: ${totalFailed} 封。\n正在前往大盘查看数据...`);
+      window.location.href = "/dashboard";
     }
 
     window.addEventListener('DOMContentLoaded', initAuth);
@@ -319,26 +419,24 @@
       </div>
     </div>
 
-    <!-- 1. 发信服务器设置 -->
+    <!-- 1. 发信服务器设置 (支持多账号添加与自动保存) -->
     <div class="card">
-      <div class="section-title">⚙️ 发件箱配置 (SMTP)</div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label class="form-label">发信邮箱</label>
-          <input type="email" id="smtpAccount" class="form-input" placeholder="例如：your_name@gmail.com" />
-          <span class="help-hint">支持 Gmail、Outlook、163 或企业自定义域名邮箱</span>
-        </div>
-        <div class="form-group">
-          <label class="form-label">应用专用密码 / SMTP 授权码</label>
-          <input type="password" id="smtpPassword" class="form-input" placeholder="16 位专用密码或授权码" />
-          <span class="help-hint">Gmail 需在 Google 账户“安全性”中生成 16 位「应用专用密码」</span>
-        </div>
+      <div class="section-title">
+        <span>⚙️ 发信账号池 (支持添加多个发信邮箱，自动轮换发送)</span>
+        <button class="btn-add-account" onclick="addAccountRow()">+ 添加发信邮箱</button>
       </div>
+      
+      <div id="accountsList">
+        <!-- 动态生成发信行 -->
+      </div>
+      <span class="help-hint">配置的账号会自动加密保存在本地浏览器中，下次进入免重新输入。发信时系统会自动在多账号间轮流平分配额。</span>
     </div>
 
     <!-- 2. 表格导入与预览 -->
     <div class="card">
-      <div class="section-title">📁 导入达人 / 客户名单</div>
+      <div class="section-title">
+        <span>📁 导入达人 / 客户名单</span>
+      </div>
       <div class="dropzone" onclick="document.getElementById('excelFileInput').click()">
         <p style="font-size:14px; font-weight:600; color:#2D6A4F;">点击或将 Excel / CSV 文件拖到此处</p>
         <p class="help-hint" style="margin-top:6px;">支持 .xlsx, .xls, .csv 格式，表头需包含「邮箱」或「email」列</p>
@@ -348,12 +446,14 @@
       <div id="tableBox" class="table-wrapper" style="display:none;"></div>
     </div>
 
-    <!-- 3. 内容与变量定制 -->
+    <!-- 3. 内容与变量定制 (彻底封杀自动乱填) -->
     <div class="card">
-      <div class="section-title">✍️ 邮件内容拟定</div>
+      <div class="section-title">
+        <span>✍️ 邮件内容拟定</span>
+      </div>
       <div class="form-group">
         <label class="form-label">邮件主题</label>
-        <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属合作邀请" />
+        <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属合作邀请" autocomplete="off" />
       </div>
       <div class="form-group">
         <label class="form-label">邮件正文（支持 HTML 与个性化变量）</label>
@@ -362,7 +462,7 @@
 注意到你在 {{平台}} 上的优质内容，我们非常期待与你合作！
 ...
 
-祝商祺"></textarea>
+祝商祺" autocomplete="off"></textarea>
         <span class="help-hint">可在正文中使用大括号包裹表格中的表头名（如 {{name}}），系统会自动为每位收件人个性化替换</span>
       </div>
 
