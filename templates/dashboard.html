@@ -69,7 +69,6 @@
       border-radius: 6px;
       font-size: 12px;
       cursor: pointer;
-      text-decoration: none;
       transition: 0.2s;
     }
     .btn-logout:hover { color: #c0392b; border-color: #c0392b; }
@@ -96,10 +95,9 @@
       border-radius: 8px;
       font-size: 13px;
       font-weight: 500;
-      text-decoration: none;
+      cursor: pointer;
       transition: 0.2s;
     }
-    .filter-pill:hover { color: #19241F; }
     .filter-pill.active {
       background: #FFFFFF;
       color: #19241F;
@@ -278,40 +276,40 @@
       <div class="brand-title">达人邮件追踪大盘</div>
       <div class="user-info">
         <a href="/api/download_extension" class="btn-download">下载插件</a>
-        <span>{{ user_email if user_email else 'yanxinc07@gmail.com' }}</span>
-        <a href="/logout" class="btn-logout">退出</a>
+        <span id="userEmailTag">yanxinc07@gmail.com</span>
+        <button class="btn-logout" onclick="handleLogout()">退出</button>
       </div>
     </header>
 
     <div class="filter-bar">
       <div class="filter-pills">
-        <a href="/dashboard?range=all" class="filter-pill {{ 'active' if range == 'all' or not range else '' }}">全部</a>
-        <a href="/dashboard?range=today" class="filter-pill {{ 'active' if range == 'today' else '' }}">今天</a>
-        <a href="/dashboard?range=yesterday" class="filter-pill {{ 'active' if range == 'yesterday' else '' }}">昨天</a>
-        <a href="/dashboard?range=7d" class="filter-pill {{ 'active' if range == '7d' else '' }}">7天</a>
-        <a href="/dashboard?range=30d" class="filter-pill {{ 'active' if range == '30d' else '' }}">30天</a>
-        <a href="/dashboard?range=90d" class="filter-pill {{ 'active' if range == '90d' else '' }}">90天</a>
+        <button class="filter-pill active" onclick="setTimeFilter('all', this)">全部</button>
+        <button class="filter-pill" onclick="setTimeFilter('today', this)">今天</button>
+        <button class="filter-pill" onclick="setTimeFilter('yesterday', this)">昨天</button>
+        <button class="filter-pill" onclick="setTimeFilter('7d', this)">7天</button>
+        <button class="filter-pill" onclick="setTimeFilter('30d', this)">30天</button>
+        <button class="filter-pill" onclick="setTimeFilter('90d', this)">90天</button>
       </div>
-      <form action="/dashboard" method="GET" class="date-range">
-        <input type="date" name="start_date" value="{{ start_date if start_date else '' }}" class="date-input">
+      <div class="date-range">
+        <input type="date" id="startDate" class="date-input">
         <span>至</span>
-        <input type="date" name="end_date" value="{{ end_date if end_date else '' }}" class="date-input">
-        <button type="submit" class="btn-filter-date">筛选历史</button>
-      </form>
+        <input type="date" id="endDate" class="date-input">
+        <button class="btn-filter-date" onclick="applyCustomFilter()">筛选历史</button>
+      </div>
     </div>
 
     <div class="metrics-row">
       <div class="metric-card">
         <div class="metric-name">总发信量</div>
-        <div class="metric-val">{{ total_sent if total_sent is defined else 0 }}</div>
+        <div class="metric-val" id="totalSent">0</div>
       </div>
       <div class="metric-card">
         <div class="metric-name">真人有效打开数</div>
-        <div class="metric-val val-bamboo">{{ real_opens if real_opens is defined else 0 }}</div>
+        <div class="metric-val val-bamboo" id="realOpens">0</div>
       </div>
       <div class="metric-card">
         <div class="metric-name">真实打开率</div>
-        <div class="metric-val val-celadon">{{ open_rate if open_rate is defined else '0.0' }}%</div>
+        <div class="metric-val val-celadon" id="openRate">0.0%</div>
       </div>
     </div>
 
@@ -326,49 +324,144 @@
             <th style="width: 17%;">首次打开 (流水)</th>
           </tr>
         </thead>
-        <tbody>
-          {% if records and records|length > 0 %}
-            {% for r in records %}
-            <tr>
-              <td>
-                <div class="subject-text">{{ r.subject if r.subject else '无主题' }}</div>
-                <div class="recipient-text">👤 {{ r.recipient if r.recipient else '-' }}</div>
-              </td>
-              <td class="time-text">{{ r.sent_at if r.sent_at else '-' }}</td>
-              <td>
-                <select class="status-select {% if '已读' in r.status or (r.read_count and r.read_count > 0) %}status-read{% elif '建联' in r.status %}status-connected{% else %}status-unread{% endif %}" onchange="updateStatus('{{ r.id }}', this)">
-                  <option value="未读" {% if r.status == '未读' or not r.status %}selected{% endif %}>未读 ({{ r.read_count if r.read_count else 0 }}次)</option>
-                  <option value="已读" {% if r.status == '已读' %}selected{% endif %}>已读</option>
-                  <option value="已建联" {% if r.status == '已建联' %}selected{% endif %}>已建联</option>
-                </select>
-              </td>
-              <td class="time-text">{{ r.first_opened if r.first_opened else '-' }}</td>
-            </tr>
-            {% endfor %}
-          {% else %}
-            <tr>
-              <td colspan="4" class="empty-state">该时间段内暂无发信记录</td>
-            </tr>
-          {% endif %}
+        <tbody id="mailTableBody">
+          <tr><td colspan="4" class="empty-state">正在同步数据...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
   <script>
-    async function updateStatus(id, selectEl) {
-      const val = selectEl.value;
-      selectEl.className = 'status-select ' + (val === '已读' ? 'status-read' : (val === '已建联' ? 'status-connected' : 'status-unread'));
+    let currentFilter = 'all';
+
+    function checkAuth() {
+      const email = localStorage.getItem('user_email') || 'yanxinc07@gmail.com';
+      document.getElementById('userEmailTag').textContent = email;
+    }
+
+    // 智能多路由轮询请求，兼容你后端所有的 API 路由变体
+    async function fetchDashboardData(customQuery = '') {
+      let query = customQuery || ('filter=' + currentFilter);
+      let endpoints = [
+        '/api/dashboard_data?' + query,
+        '/api/dashboard_stats?' + query,
+        '/api/stats?' + query,
+        '/api/records?' + query
+      ];
+
+      for (let url of endpoints) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            // 处理顶栏三大指标
+            let total = data.total_sent !== undefined ? data.total_sent : (data.total !== undefined ? data.total : (data.records ? data.records.length : 0));
+            let opens = data.real_opens !== undefined ? data.real_opens : (data.opens !== undefined ? data.opens : (data.read_count !== undefined ? data.read_count : 0));
+            let rate = data.open_rate !== undefined ? data.open_rate : (total > 0 ? ((opens / total) * 100).toFixed(1) : '0.0');
+
+            document.getElementById('totalSent').textContent = total;
+            document.getElementById('realOpens').textContent = opens;
+            document.getElementById('openRate').textContent = rate + '%';
+
+            let list = data.records || data.data || (Array.isArray(data) ? data : []);
+            renderTable(list);
+            return;
+          }
+        } catch (e) {
+          // 继续尝试下一个可能接口
+        }
+      }
+      showEmpty();
+    }
+
+    function showEmpty() {
+      document.getElementById('mailTableBody').innerHTML = '<tr><td colspan="4" class="empty-state">该时间段内暂无发信记录</td></tr>';
+    }
+
+    function renderTable(records) {
+      const tbody = document.getElementById('mailTableBody');
+      if (!records || records.length === 0) {
+        showEmpty();
+        return;
+      }
+
+      tbody.innerHTML = records.map(r => {
+        let statusText = r.status || (r.read_count > 0 ? '已读' : '未读');
+        let statusClass = 'status-unread';
+        if (statusText.includes('已读') || (r.read_count && r.read_count > 0)) {
+          statusClass = 'status-read';
+        } else if (statusText.includes('建联')) {
+          statusClass = 'status-connected';
+        }
+
+        let readCount = r.read_count !== undefined ? r.read_count : (r.opens || 0);
+        let readCountStr = ` (${readCount}次)`;
+        let id = r.id || r.tracking_id || '';
+
+        return `
+          <tr>
+            <td>
+              <div class="subject-text">${escapeHtml(r.subject || '无主题')}</div>
+              <div class="recipient-text">👤 ${escapeHtml(r.recipient || r.to || '-')}</div>
+            </td>
+            <td class="time-text">${r.sent_at || r.created_at || '-'}</td>
+            <td>
+              <select class="status-select ${statusClass}" onchange="changeStatus('${id}', this)">
+                <option value="未读" ${statusText === '未读' ? 'selected' : ''}>未读${readCountStr}</option>
+                <option value="已读" ${statusText === '已读' ? 'selected' : ''}>已读</option>
+                <option value="已建联" ${statusText === '已建联' ? 'selected' : ''}>已建联</option>
+              </select>
+            </td>
+            <td class="time-text">${r.first_opened || r.first_read || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function changeStatus(id, selectEl) {
+      const newStatus = selectEl.value;
+      selectEl.className = 'status-select ' + (newStatus === '已读' ? 'status-read' : (newStatus === '已建联' ? 'status-connected' : 'status-unread'));
       try {
         await fetch('/api/update_status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: id, status: val })
+          body: JSON.stringify({ id: id, status: newStatus })
         });
-      } catch (e) {
-        console.error('更新失败', e);
+      } catch (err) {
+        console.error('更新失败', err);
       }
     }
+
+    function setTimeFilter(filter, el) {
+      document.querySelectorAll('.filter-pill').forEach(btn => btn.classList.remove('active'));
+      el.classList.add('active');
+      currentFilter = filter;
+      fetchDashboardData('filter=' + filter);
+    }
+
+    function applyCustomFilter() {
+      const start = document.getElementById('startDate').value;
+      const end = document.getElementById('endDate').value;
+      if (!start || !end) return;
+      document.querySelectorAll('.filter-pill').forEach(btn => btn.classList.remove('active'));
+      fetchDashboardData(`start_date=${start}&end_date=${end}`);
+    }
+
+    function handleLogout() {
+      localStorage.clear();
+      window.location.href = '/';
+    }
+
+    function escapeHtml(text) {
+      return (text || '').replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
+    window.onload = function() {
+      checkAuth();
+      fetchDashboardData();
+    };
   </script>
 </body>
 </html>
