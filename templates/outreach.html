@@ -136,7 +136,7 @@
       border-color: #2D6A4F;
       background: #FFFFFF;
     }
-    .form-textarea { resize: vertical; min-height: 140px; font-family: inherit; line-height: 1.6; }
+    .form-textarea { resize: vertical; min-height: 130px; font-family: inherit; line-height: 1.6; }
 
     /* 文件上传拖拽框 */
     .dropzone {
@@ -155,7 +155,7 @@
 
     /* 预览表格 */
     .table-wrapper {
-      max-height: 220px;
+      max-height: 200px;
       overflow-y: auto;
       margin-top: 14px;
       border: 1px solid rgba(36, 51, 44, 0.08);
@@ -165,7 +165,40 @@
     th { background: #F8FAF9; padding: 10px 12px; color: #5E7267; position: sticky; top: 0; }
     td { padding: 8px 12px; border-top: 1px solid rgba(36, 51, 44, 0.05); color: #202D26; }
 
-    /* 发信提交按钮 */
+    /* 变量效果即时预览框 */
+    .preview-box {
+      margin-top: 16px;
+      padding: 16px 20px;
+      background: #F8FAF9;
+      border: 1px solid rgba(45, 106, 79, 0.15);
+      border-radius: 12px;
+      display: none;
+    }
+    .preview-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #2D6A4F;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .preview-subject {
+      font-size: 13px;
+      font-weight: 600;
+      color: #17221C;
+      margin-bottom: 6px;
+    }
+    .preview-content {
+      font-size: 12px;
+      color: #4A5B52;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      border-top: 1px dashed rgba(36, 51, 44, 0.1);
+      padding-top: 8px;
+    }
+
+    /* 发信提交按钮与进度条 */
     .btn-submit {
       width: 100%;
       padding: 14px 0;
@@ -178,10 +211,26 @@
       cursor: pointer;
       box-shadow: 0 4px 16px rgba(45, 106, 79, 0.25);
       transition: 0.2s;
-      margin-top: 8px;
+      margin-top: 16px;
     }
     .btn-submit:hover { background: #245841; }
     .btn-submit:disabled { background: #A3B8AD; cursor: not-allowed; }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 8px;
+      background: #EAEFEA;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 14px;
+      display: none;
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: #2D6A4F;
+      transition: width 0.3s ease;
+    }
 
     .help-hint {
       font-size: 11px;
@@ -189,6 +238,68 @@
       margin-top: 4px;
       line-height: 1.5;
     }
+
+    /* 触达战报弹窗 Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 19, 0.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    .modal-card {
+      background: #FFFFFF;
+      width: 90%;
+      max-width: 460px;
+      border-radius: 20px;
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+      animation: popIn 0.3s ease;
+    }
+    @keyframes popIn {
+      from { transform: scale(0.9); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .modal-icon { font-size: 44px; margin-bottom: 12px; }
+    .modal-title { font-size: 19px; font-weight: 700; color: #17221C; margin-bottom: 8px; }
+    .modal-desc { font-size: 13px; color: #5E7267; line-height: 1.6; margin-bottom: 24px; }
+    .report-stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .report-stat-item {
+      background: #F8FAF9;
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid rgba(36, 51, 44, 0.05);
+    }
+    .report-stat-num { font-size: 22px; font-weight: 800; color: #2D6A4F; }
+    .report-stat-num.failed { color: #E05656; }
+    .report-stat-label { font-size: 11px; color: #8C9C92; margin-top: 2px; }
+    .modal-actions { display: flex; gap: 10px; }
+    .modal-btn {
+      flex: 1;
+      padding: 12px 0;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
+    }
+    .modal-btn-primary { background: #2D6A4F; color: #FFFFFF; border: none; }
+    .modal-btn-primary:hover { background: #245841; }
+    .modal-btn-secondary { background: #F1F5F2; color: #5E7267; border: 1px solid rgba(36, 51, 44, 0.08); }
+    .modal-btn-secondary:hover { background: #E4ECE6; }
   </style>
 
   <script>
@@ -233,7 +344,6 @@
       btn.parentElement.remove();
     }
 
-    // 本地存储保存/读取发信账号
     function saveAccountsLocally() {
       const rows = document.querySelectorAll(".account-row");
       const accs = [];
@@ -258,7 +368,7 @@
           }
         } catch(e) {}
       }
-      addAccountRow(); // 默认给一行
+      addAccountRow();
     }
 
     // 解析上传的 Excel / CSV
@@ -275,11 +385,12 @@
         parsedRecipients = XLSX.utils.sheet_to_json(worksheet);
 
         renderPreview();
+        updateRealtimePreview();
       };
       reader.readAsArrayBuffer(file);
     }
 
-    // 渲染预览表格
+    // 渲染表格数据
     function renderPreview() {
       const box = document.getElementById("tableBox");
       const info = document.getElementById("uploadInfo");
@@ -289,7 +400,7 @@
         return;
       }
 
-      info.innerHTML = `已成功解析 <b>${parsedRecipients.length}</b> 位收件人数据：`;
+      info.innerHTML = `已成功解析 <b>${parsedRecipients.length}</b> 位收件人名单：`;
       const keys = Object.keys(parsedRecipients[0]);
       let tableHtml = `<table><thead><tr>`;
       keys.forEach(k => tableHtml += `<th>${k}</th>`);
@@ -305,6 +416,36 @@
       box.style.display = "block";
     }
 
+    // 实时计算第一位收件人的变量替换效果
+    function updateRealtimePreview() {
+      const previewCard = document.getElementById("previewBox");
+      if (!parsedRecipients || parsedRecipients.length === 0) {
+        previewCard.style.display = "none";
+        return;
+      }
+
+      const firstRow = parsedRecipients[0];
+      const rawSubject = document.getElementById("emailSubject").value || "（未填写主题）";
+      const rawBody = document.getElementById("emailBody").value || "（未填写正文）";
+
+      let finalSubject = rawSubject;
+      let finalBody = rawBody;
+
+      for (const [key, val] of Object.entries(firstRow)) {
+        const reg = new RegExp(`{{${key}}}`, "gi");
+        finalSubject = finalSubject.replace(reg, val || "");
+        finalBody = finalBody.replace(reg, val || "");
+      }
+
+      const recipientName = firstRow.name || firstRow.Name || firstRow["姓名"] || "第一位收件人";
+      const recipientEmail = firstRow.email || firstRow.Email || firstRow["邮箱"] || "";
+
+      document.getElementById("previewRecipientHint").innerText = `针对第一位收件人 [ ${recipientName} (${recipientEmail}) ] 的实装渲染效果：`;
+      document.getElementById("previewSubjectText").innerText = `主题：${finalSubject}`;
+      document.getElementById("previewContentText").innerText = finalBody;
+      previewCard.style.display = "block";
+    }
+
     // 呼叫后端发信引擎
     async function startBatchSend() {
       if (!currentUser) {
@@ -316,7 +457,6 @@
         return;
       }
 
-      // 获取所有配置的可用发信账号
       const rows = document.querySelectorAll(".account-row");
       const availableAccounts = [];
       rows.forEach(r => {
@@ -330,7 +470,6 @@
         return;
       }
 
-      // 顺手记住账号配置到本地，下次免填
       saveAccountsLocally();
 
       const emailSubject = document.getElementById("emailSubject")?.value?.trim();
@@ -342,10 +481,14 @@
       }
 
       const sendBtn = document.getElementById("btnStartOutreach");
-      sendBtn.disabled = true;
-      sendBtn.innerText = "⏳ 正在多账号轮换发信并植入追踪，请勿关闭页面...";
+      const progContainer = document.getElementById("progressContainer");
+      const progBar = document.getElementById("progressBar");
 
-      // 组装发送队列（支持动态变量替换，如 {{name}}）
+      sendBtn.disabled = true;
+      progContainer.style.display = "block";
+      progBar.style.width = "0%";
+
+      // 组装发送队列
       const payloadList = parsedRecipients.map(row => {
         let content = emailTemplate;
         let subject = emailSubject;
@@ -355,7 +498,7 @@
           subject = subject.replace(reg, val || "");
         }
         return {
-          to_email: row.email || row["邮箱"] || row["收件人"] || row["Email"] || "",
+          to_email: row.email || row.Email || row["邮箱"] || row["收件人"] || "",
           subject: subject,
           content: content.replace(/\n/g, "<br>")
         };
@@ -364,17 +507,18 @@
       if (payloadList.length === 0) {
         alert("未从表格中识别到有效的邮箱列（表头需包含 email 或 邮箱 列名）！");
         sendBtn.disabled = false;
-        sendBtn.innerText = "🚀 开始批量触达";
+        progContainer.style.display = "none";
         return;
       }
 
       let totalSent = 0;
       let totalFailed = 0;
 
-      // 前端多账号平滑轮换分批发送
       for (let i = 0; i < payloadList.length; i++) {
         const currentAccount = availableAccounts[i % availableAccounts.length];
         const targetEmail = payloadList[i];
+
+        sendBtn.innerText = `⏳ 正在投递中 (${i + 1}/${payloadList.length}) · 轮换调度中...`;
 
         try {
           const res = await fetch("/api/send_batch", {
@@ -396,11 +540,27 @@
         } catch (err) {
           totalFailed++;
         }
-        sendBtn.innerText = `⏳ 发信中 (${i + 1}/${payloadList.length}) 轮换中...`;
+
+        const percentage = Math.round(((i + 1) / payloadList.length) * 100);
+        progBar.style.width = percentage + "%";
       }
 
-      alert(`🎉 触达完成！已用 ${availableAccounts.length} 个账号轮换发送。\n成功: ${totalSent} 封，失败: ${totalFailed} 封。\n正在前往大盘查看数据...`);
-      window.location.href = "/dashboard";
+      // 弹出触达战报弹窗
+      openReportModal(totalSent, totalFailed, availableAccounts.length);
+
+      sendBtn.disabled = false;
+      sendBtn.innerText = "🚀 开始批量触达";
+      progContainer.style.display = "none";
+    }
+
+    function openReportModal(sent, failed, accCount) {
+      document.getElementById("statSuccess").innerText = sent;
+      document.getElementById("statFailed").innerText = failed;
+      document.getElementById("reportModal").style.display = "flex";
+    }
+
+    function closeReportModal() {
+      document.getElementById("reportModal").style.display = "none";
     }
 
     window.addEventListener('DOMContentLoaded', initAuth);
@@ -419,16 +579,13 @@
       </div>
     </div>
 
-    <!-- 1. 发信服务器设置 (支持多账号添加与自动保存) -->
+    <!-- 1. 发信服务器设置 -->
     <div class="card">
       <div class="section-title">
         <span>⚙️ 发信账号池 (支持添加多个发信邮箱，自动轮换发送)</span>
         <button class="btn-add-account" onclick="addAccountRow()">+ 添加发信邮箱</button>
       </div>
-      
-      <div id="accountsList">
-        <!-- 动态生成发信行 -->
-      </div>
+      <div id="accountsList"></div>
       <span class="help-hint">配置的账号会自动加密保存在本地浏览器中，下次进入免重新输入。发信时系统会自动在多账号间轮流平分配额。</span>
     </div>
 
@@ -439,34 +596,74 @@
       </div>
       <div class="dropzone" onclick="document.getElementById('excelFileInput').click()">
         <p style="font-size:14px; font-weight:600; color:#2D6A4F;">点击或将 Excel / CSV 文件拖到此处</p>
-        <p class="help-hint" style="margin-top:6px;">支持 .xlsx, .xls, .csv 格式，表头需包含「邮箱」或「email」列</p>
+        <p class="help-hint" style="margin-top:6px;">支持 .xlsx, .xls, .csv 格式，表头需包含「name」和「email」列</p>
         <input type="file" id="excelFileInput" style="display:none;" accept=".xlsx, .xls, .csv" onchange="handleFile(event)" />
       </div>
       <div id="uploadInfo" style="margin-top:12px; font-size:13px; color:#5E7267;"></div>
       <div id="tableBox" class="table-wrapper" style="display:none;"></div>
     </div>
 
-    <!-- 3. 内容与变量定制 (彻底封杀自动乱填) -->
+    <!-- 3. 内容与变量定制 -->
     <div class="card">
       <div class="section-title">
         <span>✍️ 邮件内容拟定</span>
       </div>
       <div class="form-group">
         <label class="form-label">邮件主题</label>
-        <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属合作邀请" autocomplete="off" />
+        <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属商务合作邀请" autocomplete="off" oninput="updateRealtimePreview()" />
       </div>
       <div class="form-group">
         <label class="form-label">邮件正文（支持 HTML 与个性化变量）</label>
         <textarea id="emailBody" class="form-textarea" placeholder="Hi {{name}},
 
-注意到你在 {{平台}} 上的优质内容，我们非常期待与你合作！
-...
-
-祝商祺" autocomplete="off"></textarea>
+注意到你在相关领域的精彩分享，我们非常期待与你合作！
+..." autocomplete="off" oninput="updateRealtimePreview()"></textarea>
         <span class="help-hint">可在正文中使用大括号包裹表格中的表头名（如 {{name}}），系统会自动为每位收件人个性化替换</span>
       </div>
 
+      <!-- 变量代入效果即时预览框 -->
+      <div id="previewBox" class="preview-box">
+        <div class="preview-header">
+          <span>👁️ 首封邮件变量渲染预览</span>
+          <span id="previewRecipientHint" style="font-size:11px; font-weight:normal; color:#5E7267; margin-left:6px;"></span>
+        </div>
+        <div id="previewSubjectText" class="preview-subject"></div>
+        <div id="previewContentText" class="preview-content"></div>
+      </div>
+
+      <!-- 进度条 -->
+      <div id="progressContainer" class="progress-bar-container">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+
       <button id="btnStartOutreach" class="btn-submit" onclick="startBatchSend()">🚀 开始批量触达</button>
+    </div>
+  </div>
+
+  <!-- 触达战报反馈弹窗 -->
+  <div id="reportModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-icon">🎉</div>
+      <div class="modal-title">本批次触达任务完成</div>
+      <div class="modal-desc">
+        所有邮件均已自动植入隐形追踪微像素。<br>一旦达人或客户打开邮件，大盘将立即捕获流水！
+      </div>
+
+      <div class="report-stat-grid">
+        <div class="report-stat-item">
+          <div id="statSuccess" class="report-stat-num">0</div>
+          <div class="report-stat-label">成功投递 (封)</div>
+        </div>
+        <div class="report-stat-item">
+          <div id="statFailed" class="report-stat-num failed">0</div>
+          <div class="report-stat-label">发送失败 (封)</div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" onclick="closeReportModal()">留在本页</button>
+        <a href="/dashboard" class="modal-btn modal-btn-primary">📊 前往追踪大盘</a>
+      </div>
     </div>
   </div>
 
