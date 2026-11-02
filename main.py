@@ -677,6 +677,27 @@ async def api_version():
     return {"v": "v5-fix3-jwks-noapikey"}
 
 
+@app.get("/api/diag2")
+async def api_diag2():
+    """临时诊断 2：只看 DATABASE_URL 是否已配置（不露连接串），并试连一次。"""
+    from urllib.parse import urlparse
+    du = os.getenv("DATABASE_URL", "")
+    out = {"database_url_present": bool(du), "database_url_len": len(du),
+           "db_host": urlparse(du).hostname if du else None}
+    if du:
+        try:
+            import psycopg2
+            conn = psycopg2.connect(du, sslmode="require", connect_timeout=10)
+            cur = conn.cursor()
+            cur.execute("SELECT count(*) FROM public.emails")
+            out["emails_rows"] = cur.fetchone()[0]
+            conn.close()
+            out["connect"] = "ok"
+        except Exception as e:
+            out["connect"] = f"ERR {type(e).__name__}: {str(e)[:140]}"
+    return out
+
+
 @app.get("/api/accounts")
 async def list_accounts(authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
