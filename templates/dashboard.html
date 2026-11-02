@@ -42,10 +42,11 @@
         window.location.href = "/";
         return;
       }
-      const { data: emails } = await client.from("emails").select("*").eq("user_email", session.user.email).order("created_at", { ascending: false });
-      
+      const { data: emails, error } = await client.from("emails").select("*").eq("user_id", session.user.id).order("send_time", { ascending: false });
+      if (error) { console.error("load emails failed:", error); }
+
       const total = emails ? emails.length : 0;
-      const read = emails ? emails.filter(e => e.is_read).length : 0;
+      const read = emails ? emails.filter(e => (e.open_count || 0) > 0).length : 0;
       const rate = total > 0 ? ((read / total) * 100).toFixed(1) + "%" : "0%";
 
       document.getElementById("statTotal").innerText = total;
@@ -57,12 +58,21 @@
       if (emails) {
         emails.forEach(e => {
           const tr = document.createElement("tr");
+          let statusHtml;
+          if (e.status === "failed") {
+            statusHtml = '<span class="badge badge-unread">发送失败</span>';
+          } else if ((e.open_count || 0) > 0) {
+            statusHtml = `<span class="badge badge-read">已读 ×${e.open_count}</span>`;
+          } else {
+            statusHtml = '<span class="badge badge-unread">未开信</span>';
+          }
+          const fmt = v => { if (!v) return "-"; const d = new Date(v); return isNaN(d) ? v : d.toLocaleString(); };
           tr.innerHTML = `
-            <td>${e.recipient}</td>
-            <td>${e.subject}</td>
-            <td>${e.is_read ? '<span class="badge badge-read">已读</span>' : '<span class="badge badge-unread">未开信</span>'}</td>
-            <td>${e.read_at ? new Date(e.read_at).toLocaleString() : '-'}</td>
-            <td>${new Date(e.created_at).toLocaleString()}</td>
+            <td>${e.recipient || "-"}</td>
+            <td>${e.subject || "-"}</td>
+            <td>${statusHtml}</td>
+            <td>${fmt(e.first_open_time)}</td>
+            <td>${fmt(e.send_time)}</td>
           `;
           tbody.appendChild(tr);
         });
@@ -88,7 +98,7 @@
     </div>
     <div class="table-card">
       <table>
-        <thead><tr><th>收件人</th><th>邮件主题</th><th>状态</th><th>开信时间</th><th>发送时间</th></tr></thead>
+        <thead><tr><th>收件人</th><th>邮件主题</th><th>状态</th><th>首开时间</th><th>发送时间</th></tr></thead>
         <tbody id="emailTableBody"></tbody>
       </table>
     </div>
