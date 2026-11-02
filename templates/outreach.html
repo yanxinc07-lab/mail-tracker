@@ -329,6 +329,7 @@
 
     let currentUser = null;
     let parsedRecipients = [];
+    let importTruncated = false;
 
     async function initAuth() {
       const { data: { session } } = await client.auth.getSession();
@@ -447,13 +448,18 @@
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         parsedRecipients = XLSX.utils.sheet_to_json(worksheet);
+        importTruncated = false;
+        if (parsedRecipients.length > 1000) {
+          parsedRecipients = parsedRecipients.slice(0, 1000);
+          importTruncated = true;
+        }
 
         const dropzone = document.getElementById("fileDropzone");
         dropzone.classList.add("uploaded");
         
         const badge = document.getElementById("uploadBadge");
         badge.style.display = "inline-flex";
-        badge.innerHTML = `✅ 已成功载入名单：<strong>${file.name}</strong>（共识别出 ${parsedRecipients.length} 位联系人）`;
+        badge.innerHTML = `✅ 已成功载入名单：<strong>${file.name}</strong>（共识别出 ${parsedRecipients.length} 位联系人）${importTruncated ? '<br>⚠️ 名单超过 1000 人上限，已只取前 1000 位，剩余的请删减后另外再导一次' : ''}`;
 
         renderPreview();
         updateRealtimePreview();
@@ -738,6 +744,11 @@
       if (availableAccounts.length === 0) {
         alert("请至少配置一个发信邮箱及其授权码！");
         return;
+      }
+
+      const capTotal = availableAccounts.length * 50;
+      if (parsedRecipients.length > capTotal) {
+        if (!confirm(`名单共 ${parsedRecipients.length} 人，当前 ${availableAccounts.length} 个发信账号今天最多发 ${capTotal} 封（每号每天上限 50 封），超出的 ${parsedRecipients.length - capTotal} 人本次会被跳过（不会发）。确定继续吗？`)) return;
       }
 
       saveAccountsLocally();

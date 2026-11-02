@@ -48,6 +48,7 @@ TRANSPARENT_1PX_GIF = (
 # 发件人设备标记 Cookie 名：访问工作台/大盘时种下，/track 见到它就不记已读
 SENDER_COOKIE_NAME = "is_sender_device"
 SENDER_COOKIE_MAX_AGE = 365 * 24 * 3600  # 一年
+MAX_EMAILS_PER_TASK = 1000  # 单批收件人硬上限（与前端导入上限一致，防误发）
 
 # 商品链接行默认值（用户已确认过的商品短链接与文案，2026-11-02）
 DEFAULT_LINK_URL = "https://shop.tiktok.com/us/pdp/1732256087876277185"
@@ -458,6 +459,8 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
         raise HTTPException(status_code=400, detail="至少需要一个发信账号")
     if not req.emails:
         raise HTTPException(status_code=400, detail="名单为空")
+    if len(req.emails) > MAX_EMAILS_PER_TASK:
+        raise HTTPException(status_code=400, detail=f"单批最多 {MAX_EMAILS_PER_TASK} 位收件人，请删减名单后重试")
     task_id = uuid.uuid4().hex[:12]
     TASKS[task_id] = {
         "task_id": task_id,
@@ -577,6 +580,8 @@ def _pixel_response() -> Response:
 # ==========================================
 @app.post("/api/send_batch")
 async def send_batch_emails(req: SendBatchRequest):
+    if len(req.emails) > MAX_EMAILS_PER_TASK:
+        raise HTTPException(status_code=400, detail=f"单批最多 {MAX_EMAILS_PER_TASK} 位收件人，请删减名单后重试")
     account = SmtpAccount(email=req.smtp_account, password=req.smtp_password)
     conn = SmtpConnection(account)
     sent_count = 0
