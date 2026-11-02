@@ -673,6 +673,26 @@ async def api_version():
     return {"v": "v5-fix3-jwks-noapikey"}
 
 
+@app.get("/api/diag")
+async def api_diag():
+    """临时诊断：只报告配置形状与连通性，不含任何密钥值。定位完即删。"""
+    from urllib.parse import urlparse
+    host = urlparse(SUPABASE_URL).netloc
+    out = {"supabase_host": host, "service_key_len": len(SUPABASE_SERVICE_ROLE_KEY or "")}
+    try:
+        req = urllib.request.Request(f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json")
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            out["jwks"] = f"http {resp.status}"
+    except Exception as e:
+        out["jwks"] = f"ERR {type(e).__name__}: {e}"
+    try:
+        supabase.table("emails").select("id").limit(1).execute()
+        out["db"] = "ok"
+    except Exception as e:
+        out["db"] = f"ERR {type(e).__name__}: {str(e)[:160]}"
+    return out
+
+
 @app.get("/api/accounts")
 async def list_accounts(authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
