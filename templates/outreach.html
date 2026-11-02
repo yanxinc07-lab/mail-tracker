@@ -339,7 +339,9 @@
         return;
       }
       currentUser = session.user;
-      loadSavedAccounts();
+      loadCloudAccounts();
+      loadTaskList();
+      setInterval(loadTaskList, 5000);
       setupDragAndDrop();
       setupRichEditor();
       loadCopywritingList();
@@ -374,65 +376,86 @@
       });
     }
 
-    function addAccountRow(emailVal = "", passVal = "") {
+    let cloudAccounts = [];
+
+    async function apiHeaders() {
+      const { data: { session } } = await client.auth.getSession();
+      const h = { "Content-Type": "application/json" };
+      if (session && session.access_token) h["Authorization"] = "Bearer " + session.access_token;
+      return h;
+    }
+
+    async function loadCloudAccounts() {
       const list = document.getElementById("accountsList");
-      const div = document.createElement("div");
-      div.className = "account-row";
-      div.innerHTML = `
-        <input type="text" class="form-input acc-email" placeholder="发信邮箱 (如 name@gmail.com)" value="${emailVal}" autocomplete="off" />
-        <input type="password" class="form-input acc-pass" placeholder="16位专用授权码" value="${passVal}" autocomplete="new-password" />
-        <button class="btn-del-account" title="删除该账号" onclick="removeAccountRow(this)">✕</button>
-      `;
-      list.appendChild(div);
-    }
-
-    function removeAccountRow(btn) {
-      const list = document.getElementById("accountsList");
-      if (list.children.length <= 1) {
-        alert("至少需要保留一个发信邮箱配置！");
-        return;
-      }
-      btn.parentElement.remove();
-    }
-
-    function saveAccountsLocally() {
-      // 只有勾选了“保存发信配置到本机”才保存；没勾就清除已存的，绝不默认保存
-      const chk = document.getElementById("saveAccountsChk");
-      if (!chk || !chk.checked) {
-        localStorage.removeItem("mailtracker_smtp_accs");
-        return;
-      }
-      const rows = document.querySelectorAll(".account-row");
-      const accs = [];
-      rows.forEach(r => {
-        const em = r.querySelector(".acc-email").value.trim();
-        const pw = r.querySelector(".acc-pass").value.trim();
-        if (em && pw) accs.push({ email: em, pass: pw });
-      });
-      localStorage.setItem("mailtracker_smtp_accs", JSON.stringify(accs));
-    }
-
-    function onSaveAccountsToggle() {
-      // 勾选状态变化时立即生效：勾上就存当前配置，取消就立刻清除已存的
-      saveAccountsLocally();
-    }
-
-    function loadSavedAccounts() {
-      const saved = localStorage.getItem("mailtracker_smtp_accs");
-      const list = document.getElementById("accountsList");
+      try {
+        const res = await fetch("/api/accounts", { headers: await apiHeaders() });
+        const data = await res.json();
+        cloudAccounts = data.accounts || [];
+      } catch (e) { cloudAccounts = []; }
       list.innerHTML = "";
-      if (saved) {
-        try {
-          const accs = JSON.parse(saved);
-          if (accs.length > 0) {
-            accs.forEach(a => addAccountRow(a.email, a.pass));
-            const chk = document.getElementById("saveAccountsChk");
-            if (chk) chk.checked = true;
-            return;
-          }
-        } catch(e) {}
+      if (cloudAccounts.length === 0) {
+        list.innerHTML = '<div style="font-size:13px;color:#78909C;padding:4px 0;">还没有发信账号，在下面添加第一个 ↓（只需添加一次，之后登录自动带出）</div>';
+        return;
       }
-      addAccountRow();
+      cloudAccounts.forEach(a => {
+        const div = document.createElement("div");
+        div.className = "account-row";
+        div.innerHTML = `
+          <input type="text" class="form-input" value="${a.email}" readonly style="background:#F1F8E9;" />
+          <span style="font-size:12px;color:#2E7D32;white-space:nowrap;">☁️ 已存云端 · 授权码已加密</span>
+          <button class="btn-del-account" title="从云端删除该账号" onclick="deleteCloudAccount('${a.id}')">✕</button>
+        `;
+        list.appendChild(div);
+      });
+    }
+
+    async function addCloudAccount() {
+      const em = document.getElementById("newAccEmail").value.trim();
+      const pw = document.getElementById("newAccPass").value.trim();
+      if (!em || !pw) { alert("请填写发信邮箱和授权码！"); return; }
+      try {
+        const res = await fetch("/api/accounts", {
+          method: "POST", headers: await apiHeaders(),
+          body: JSON.stringify({ email: em, password: pw })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { alert("添加失败：" + (data.detail || "未知错误")); return; }
+        document.getElementById("newAccEmail").value = "";
+        document.getElementById("newAccPass").value = "";
+        await loadCloudAccounts();
+      } catch (e) { alert("添加失败：网络错误"); }
+    }
+
+    async function deleteCloudAccount(id) {
+      if (!confirm("确定从云端删除这个发信账号吗？")) return;
+      try {
+        await fetch(`/api/accounts/${id}`, { method: "DELETE", headers: await apiHeaders() });
+        await loadCloudAccounts();
+      } catch (e) {}
+    }
+
+    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已停止", failed: "❌ 失败" };
+
+    async function loadTaskList() {
+      const tbody = document.getElementById("taskListBody");
+      if (!tbody || !currentUser) return;
+      const { data, error } = await client.from("send_tasks").select("*").order("created_at", { ascending: false }).limit(20);
+      if (error) return;
+      tbody.innerHTML = "";
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:#78909C;">还没有发送任务记录</td></tr>';
+        return;
+      }
+      data.forEach(t => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
+          <td>${t.subject || "-"}</td>
+          <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
+          <td>${TASK_STATUS_LABEL[t.status] || t.status || "-"}</td>
+        `;
+        tbody.appendChild(tr);
+      });
     }
 
     function handleFile(e) {
@@ -733,25 +756,15 @@
         return;
       }
 
-      const rows = document.querySelectorAll(".account-row");
-      const availableAccounts = [];
-      rows.forEach(r => {
-        const em = r.querySelector(".acc-email").value.trim();
-        const pw = r.querySelector(".acc-pass").value.trim();
-        if (em && pw) availableAccounts.push({ email: em, pass: pw });
-      });
-
-      if (availableAccounts.length === 0) {
-        alert("请至少配置一个发信邮箱及其授权码！");
+      if (cloudAccounts.length === 0) {
+        alert("还没有发信账号，请先在上方账号区添加（云端保存）！");
         return;
       }
 
-      const capTotal = availableAccounts.length * 50;
+      const capTotal = cloudAccounts.length * 50;
       if (parsedRecipients.length > capTotal) {
-        if (!confirm(`名单共 ${parsedRecipients.length} 人，当前 ${availableAccounts.length} 个发信账号今天最多发 ${capTotal} 封（每号每天上限 50 封），超出的 ${parsedRecipients.length - capTotal} 人本次会被跳过（不会发）。确定继续吗？`)) return;
+        if (!confirm(`名单共 ${parsedRecipients.length} 人，当前 ${cloudAccounts.length} 个发信账号今天最多发 ${capTotal} 封（每号每天上限 50 封），超出的 ${parsedRecipients.length - capTotal} 人本次会被跳过（不会发）。确定继续吗？`)) return;
       }
-
-      saveAccountsLocally();
 
       const emailSubject = document.getElementById("emailSubject")?.value?.trim();
       const emailTemplate = document.getElementById("emailBody")?.value?.trim();
@@ -796,10 +809,8 @@
       try {
         const res = await fetch("/api/tasks", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: await apiHeaders(),
           body: JSON.stringify({
-            user_email: currentUser.email,
-            accounts: availableAccounts.map(a => ({ email: a.email, password: a.pass })),
             emails: payloadList,
             daily_cap: 50,
             interval_seconds: 0,
@@ -829,7 +840,7 @@
       const poll = setInterval(async () => {
         let t;
         try {
-          const r = await fetch(`/api/tasks/${taskId}`);
+          const r = await fetch(`/api/tasks/${taskId}`, { headers: await apiHeaders() });
           t = await r.json();
         } catch (e) {
           return; // 网络抖动时下轮再试
@@ -844,6 +855,7 @@
           document.getElementById("taskControls").style.display = "none";
           currentTaskId = null;
           openReportModal(t.sent, t.failed);
+          loadTaskList();
           sendBtn.disabled = false;
           sendBtn.innerText = "🚀 开始批量触达";
           progContainer.style.display = "none";
@@ -856,7 +868,7 @@
     async function taskControl(action) {
       if (!currentTaskId) return;
       try {
-        await fetch(`/api/tasks/${currentTaskId}/${action}`, { method: "POST" });
+        await fetch(`/api/tasks/${currentTaskId}/${action}`, { method: "POST", headers: await apiHeaders() });
       } catch (e) {}
     }
 
@@ -885,18 +897,18 @@
       </div>
     </div>
 
-    <!-- 1. 发信服务器设置 -->
+    <!-- 1. 发信账号（云端） -->
     <div class="card">
       <div class="section-title">
-        <span>⚙️ 发信账号池 (支持添加多个发信邮箱，自动轮换发送)</span>
-        <button class="btn-add-account" onclick="addAccountRow()">+ 添加发信邮箱</button>
+        <span>⚙️ 发信账号（云端保存 · 按你的登录账号隔离）</span>
       </div>
       <div id="accountsList"></div>
-      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#33473C; margin-top:8px; cursor:pointer;">
-        <input type="checkbox" id="saveAccountsChk" onchange="onSaveAccountsToggle()" />
-        保存发信配置到本机（下次打开自动带入）
-      </label>
-      <span class="help-hint">如实说明：账号和授权码是<b>明文</b>保存在本地浏览器（localStorage）里，没有加密；只有勾选上面这项才保存，不勾选则不会保存、已保存的也会清除。共用电脑请勿勾选。发信时系统会自动在多账号间轮流平分配额。</span>
+      <div class="account-row" style="margin-top:10px;">
+        <input type="text" id="newAccEmail" class="form-input" placeholder="发信邮箱 (如 name@gmail.com)" autocomplete="off" />
+        <input type="password" id="newAccPass" class="form-input" placeholder="16位专用授权码" autocomplete="new-password" />
+        <button class="btn-add-account" onclick="addCloudAccount()">+ 添加到云端</button>
+      </div>
+      <span class="help-hint">账号保存在云端数据库、只属于你的登录账号，换台电脑登录也能看到；授权码在服务器上<b>加密后</b>才存入数据库，页面上永不回显明文。发送时后端直接从云端取用，自动在多个账号间轮换平分。以前存在本机浏览器的账号不会自动迁移，重新在这里添加一次即可。</span>
     </div>
 
     <!-- 2. 表格导入与预览 -->
@@ -993,6 +1005,21 @@
       </div>
     </div>
   </div>
+
+    <!-- 发送任务列表（进行中 + 历史，存云端） -->
+    <div class="card">
+      <div class="section-title"><span>📋 发送任务（进行中与历史记录）</span></div>
+      <span class="help-hint">每批发送都会记在这里：进行中的每 5 秒自动刷新，完成的长期保留，服务器重启也不会丢。</span>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+          <thead><tr style="text-align:left; color:#546E7A;">
+            <th style="padding:6px;">开始时间</th><th style="padding:6px;">主题</th><th style="padding:6px;">总数</th>
+            <th style="padding:6px;">已发</th><th style="padding:6px;">失败</th><th style="padding:6px;">跳过</th><th style="padding:6px;">状态</th>
+          </tr></thead>
+          <tbody id="taskListBody"></tbody>
+        </table>
+      </div>
+    </div>
 
   <div id="reportModal" class="modal-overlay">
     <div class="modal-card">
