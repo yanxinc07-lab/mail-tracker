@@ -24,6 +24,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from supabase import create_client, Client
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 import io
 
 # ==========================================
@@ -84,23 +87,59 @@ class BatchTaskRequest(BaseModel):
 # ==========================================
 # 登录校验与发信账号（云端加密存储）
 # ==========================================
+_JWKS_CACHE = {"keys": None, "fetched_at": 0.0}
+
+
+def _b64url_decode(seg: str) -> bytes:
+    return base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4))
+
+
 def _verify_user_id(authorization: Optional[str]) -> str:
-    """校验前端带来的 Supabase 登录令牌，返回用户 uuid；无效抛 401。
-    user_id 一律以令牌为准，不信任请求体里自报的身份。
-    直接调 GoTrue 的 /auth/v1/user 接口验证（不依赖 supabase 客户端库的版本行为）。"""
+    """校验前端带来的 Supabase 登录令牌（ES256），返回用户 uuid；无效抛 401。
+    用项目公开的 JWKS 公钥在本地验签，不依赖服务器端密钥配置；
+    user_id 只取令牌里的 sub，不信任请求体自报的身份。"""
     if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.split(" ", 1)[1].strip()
     try:
-        req = urllib.request.Request(
-            f"{SUPABASE_URL}/auth/v1/user",
-            headers={"apikey": SUPABASE_SERVICE_ROLE_KEY,
-                     "Authorization": f"Bearer {token}"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if data.get("id"):
-            return data["id"]
+        head_seg, payload_seg, sig_seg = token.split(".")
+        header = json.loads(_b64url_decode(head_seg))
+        payload = json.loads(_b64url_decode(payload_seg))
+        if payload.get("exp", 0) < time.time():
+            raise ValueError("token expired")
+        now = time.time()
+        if not _JWKS_CACHE["keys"] or now - _JWKS_CACHE["fetched_at"] > 3600:
+            last_err = None
+            for _attempt in range(3):  # 公钥拉取偶发连接重置时重试，成功后缓存 1 小时
+                try:
+                    req = urllib.request.Request(
+                        f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json",
+                        headers={"apikey": SUPABASE_SERVICE_ROLE_KEY})
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        _JWKS_CACHE["keys"] = json.loads(resp.read().decode("utf-8"))["keys"]
+                    _JWKS_CACHE["fetched_at"] = now
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    time.sleep(0.6)
+            if last_err is not None:
+                raise last_err
+        jwk = next((k for k in _JWKS_CACHE["keys"] if k.get("kid") == header.get("kid")), None)
+        if jwk is None:
+            raise ValueError("kid not found in JWKS")
+        x = int.from_bytes(_b64url_decode(jwk["x"]), "big")
+        y = int.from_bytes(_b64url_decode(jwk["y"]), "big")
+        pub = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key()
+        sig = _b64url_decode(sig_seg)
+        der = encode_dss_signature(int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big"))
+        pub.verify(der, f"{head_seg}.{payload_seg}".encode(), ec.ECDSA(hashes.SHA256()))
+        sub = payload.get("sub")
+        if not sub:
+            raise ValueError("no sub")
+        return sub
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"auth verify failed: {e}")
     raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
