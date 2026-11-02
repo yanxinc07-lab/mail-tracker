@@ -6,6 +6,7 @@ import uuid
 import imaplib
 import smtplib
 import urllib.request
+import json
 import hashlib
 import base64
 import threading
@@ -71,7 +72,7 @@ class SmtpAccount(BaseModel):
 class BatchTaskRequest(BaseModel):
     user_email: str = ""
     user_id: str = ""
-    accounts: List[SmtpAccount]
+    accounts: List[SmtpAccount] = []
     emails: List[EmailItem]
     daily_cap: int = 50
     interval_seconds: float = 0
@@ -85,14 +86,21 @@ class BatchTaskRequest(BaseModel):
 # ==========================================
 def _verify_user_id(authorization: Optional[str]) -> str:
     """校验前端带来的 Supabase 登录令牌，返回用户 uuid；无效抛 401。
-    user_id 一律以令牌为准，不信任请求体里自报的身份。"""
+    user_id 一律以令牌为准，不信任请求体里自报的身份。
+    直接调 GoTrue 的 /auth/v1/user 接口验证（不依赖 supabase 客户端库的版本行为）。"""
     if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.split(" ", 1)[1].strip()
     try:
-        res = supabase.auth.get_user(token)
-        if res and res.user and res.user.id:
-            return res.user.id
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={"apikey": SUPABASE_SERVICE_ROLE_KEY,
+                     "Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("id"):
+            return data["id"]
     except Exception as e:
         print(f"auth verify failed: {e}")
     raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
