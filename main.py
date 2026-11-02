@@ -568,7 +568,7 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
 
             if chosen.email not in conns:
                 conns[chosen.email] = SmtpConnection(chosen)
-            ok, err = send_one(req.user_email, conns[chosen.email], item,
+            ok, err = send_one(req.user_id, conns[chosen.email], item,
                                link_enabled=req.link_enabled, link_url=req.link_url,
                                link_text=req.link_text)
             acct_stat = task["per_account"].setdefault(
