@@ -246,7 +246,8 @@ TRANSPARENT_1PX_GIF = (
 def get_smtp_host_and_port(smtp_account: str):
     domain = smtp_account.split("@")[-1].lower()
     if "gmail.com" in domain:
-        return "smtp.gmail.com", 465, True
+        # 用 587+STARTTLS：与 9 月可跑版本一致；465 在本部署环境实测不可达
+        return "smtp.gmail.com", 587, False
     elif "qq.com" in domain:
         return "smtp.qq.com", 465, True
     elif "163.com" in domain:
