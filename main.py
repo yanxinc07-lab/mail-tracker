@@ -22,7 +22,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from supabase import create_client, Client
+import psycopg2
+import psycopg2.extras
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
 from cryptography.hazmat.primitives import hashes
@@ -40,7 +41,35 @@ if not SUPABASE_URL or "YOUR_SUPABASE" in SUPABASE_URL:
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "YOUR_SUPABASE_SERVICE_ROLE_KEY")
 BASE_URL = os.getenv("BASE_URL", "https://YOUR_APP_NAME.onrender.com")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+# ==========================================
+# 数据库数据层（直连 Postgres，与 9 月可跑版本同一条路）
+# ----------------------------------------------------------
+# 本服务的 Render 环境里只配置了 DATABASE_URL（Supabase 连接池地址）；
+# SUPABASE_URL / SERVICE_ROLE_KEY 从未真正配置过（一直是占位符），
+# 因此后端一律走 DATABASE_URL 直连，不用 Supabase REST 客户端。
+# SUPABASE_URL 仅用于登录令牌验签时拼 JWKS 地址（公开信息，带兜底）。
+# ==========================================
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+
+def _db_exec(sql: str, params=()):
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _db_query(sql: str, params=()):
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, params)
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 # 发件人设备标记 Cookie 名：访问工作台/大盘时种下，/track 见到它就不记已读
 SENDER_COOKIE_NAME = "is_sender_device"
@@ -150,10 +179,11 @@ def _verify_user_id(authorization: Optional[str]) -> str:
 
 
 def _fernet() -> Fernet:
-    # 加密密钥由服务器已有的 service role 密钥派生：数据库单独泄露时，
-    # 没有服务器环境里的这把钥匙就解不出授权码。轮换 service key 需同步迁移账号。
+    # 加密密钥由服务器环境里的 DATABASE_URL 派生：数据库单独泄露时，
+    # 没有服务器环境里的连接串就解不出授权码。轮换连接串需同步迁移账号。
+    seed = DATABASE_URL or SUPABASE_SERVICE_ROLE_KEY
     key = base64.urlsafe_b64encode(
-        hashlib.sha256(SUPABASE_SERVICE_ROLE_KEY.encode()).digest())
+        hashlib.sha256(seed.encode()).digest())
     return Fernet(key)
 
 
@@ -168,8 +198,9 @@ def _decrypt_pass(enc: str) -> str:
 def _load_user_accounts(user_id: str) -> List[SmtpAccount]:
     """从云端读该用户的发信账号并解密（仅后端内部使用）。"""
     try:
-        rows = supabase.table("sender_accounts").select("email, pass_enc") \
-            .eq("user_id", user_id).order("created_at").execute().data or []
+        rows = _db_query(
+            "SELECT email, pass_enc FROM sender_accounts WHERE user_id = %s ORDER BY created_at",
+            (user_id,))
     except Exception as e:
         print(f"load accounts failed: {e}")
         return []
@@ -185,14 +216,11 @@ def _load_user_accounts(user_id: str) -> List[SmtpAccount]:
 def _sync_task_db(task: dict):
     """把内存任务的进度同步到 send_tasks 表（尽力而为，失败只记日志）。"""
     try:
-        supabase.table("send_tasks").update({
-            "status": task["status"],
-            "sent": task["sent"],
-            "failed": task["failed"],
-            "skipped": task["skipped"],
-            "finished_at": task["finished_at"],
-            "notes": "\n".join(task["notes"]),
-        }).eq("id", task["id"]).execute()
+        _db_exec(
+            "UPDATE send_tasks SET status = %s, sent = %s, failed = %s, skipped = %s, "
+            "finished_at = %s, notes = %s WHERE id = %s",
+            (task["status"], task["sent"], task["failed"], task["skipped"],
+             task["finished_at"], "\n".join(task["notes"]), task["id"]))
     except Exception as e:
         print(f"sync task db failed: {e}")
 
@@ -302,40 +330,33 @@ def assemble_content(html: str, *, link_enabled: bool, link_url: str, link_text:
 # ==========================================
 # 发送记录（Supabase emails 表，带 status 并做降级）
 # ==========================================
-def _insert_record(user_id: str, item: EmailItem):
+def _insert_record(user_id: str, item: EmailItem) -> str:
     """按线上 emails 表结构写记录：id 由后端生成（text 主键、无默认值），
-    user_id 为登录用户 uuid，send_time 存 ISO 文本，open_count 默认 0。"""
-    payload = {
-        "id": str(uuid.uuid4()),
-        "user_id": user_id or None,
-        "recipient": item.to_email,
-        "subject": item.subject,
-        "send_time": datetime.now(timezone.utc).isoformat(),
-        "status": "pending",
-        "open_count": 0,
-    }
-    return supabase.table("emails").insert(payload).execute()
+    user_id 为登录用户 uuid，send_time 存 ISO 文本，open_count 初始 0。"""
+    rid = str(uuid.uuid4())
+    _db_exec(
+        "INSERT INTO emails (id, recipient, subject, send_time, status, open_count, user_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (rid, item.to_email, item.subject,
+         datetime.now(timezone.utc).isoformat(), "pending", 0, user_id or None))
+    return rid
 
 
 def create_send_record(user_id: str, item: EmailItem) -> Optional[str]:
     """插入一条 pending 记录并返回 id；失败返回 None（调用方据此判定发送失败）。"""
     try:
-        res = _insert_record(user_id, item)
+        return _insert_record(user_id, item)
     except Exception as e:
         print(f"Insert send record failed: {e}")
         return None
-    if res.data:
-        return res.data[0]["id"]
-    return None
 
 
 def update_record_status(email_id: Optional[str], status: str):
     if not email_id:
         return
     try:
-        supabase.table("emails").update({"status": status}).eq("id", email_id).execute()
+        _db_exec("UPDATE emails SET status = %s WHERE id = %s", (status, email_id))
     except Exception as e:
-        # status 列不存在等情况下只记日志，不影响发送本身
         print(f"Update record status failed for {email_id}: {e}")
 
 # ==========================================
@@ -611,17 +632,13 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
         "finished_at": None,
     }
     try:
-        supabase.table("send_tasks").insert({
-            "id": task_id,
-            "user_id": user_id,
-            "status": "running",
-            "total": len(req.emails),
-            "sent": 0, "failed": 0, "skipped": 0,
-            "accounts": ",".join(a.email for a in accounts),
-            "subject": req.emails[0].subject if req.emails else "",
-            "created_at": TASKS[task_id]["created_at"],
-            "notes": "",
-        }).execute()
+        _db_exec(
+            "INSERT INTO send_tasks (id, user_id, status, total, sent, failed, skipped, "
+            "accounts, subject, created_at, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (task_id, user_id, "running", len(req.emails), 0, 0, 0,
+             ",".join(a.email for a in accounts),
+             req.emails[0].subject if req.emails else "",
+             TASKS[task_id]["created_at"], ""))
     except Exception as e:
         print(f"insert send_tasks failed: {e}")
     background_tasks.add_task(run_batch_task, task_id, req)
@@ -677,33 +694,16 @@ async def api_version():
     return {"v": "v5-fix3-jwks-noapikey"}
 
 
-@app.get("/api/diag2")
-async def api_diag2():
-    """临时诊断 2：只看 DATABASE_URL 是否已配置（不露连接串），并试连一次。"""
-    from urllib.parse import urlparse
-    du = os.getenv("DATABASE_URL", "")
-    out = {"database_url_present": bool(du), "database_url_len": len(du),
-           "db_host": urlparse(du).hostname if du else None}
-    if du:
-        try:
-            import psycopg2
-            conn = psycopg2.connect(du, sslmode="require", connect_timeout=10)
-            cur = conn.cursor()
-            cur.execute("SELECT count(*) FROM public.emails")
-            out["emails_rows"] = cur.fetchone()[0]
-            conn.close()
-            out["connect"] = "ok"
-        except Exception as e:
-            out["connect"] = f"ERR {type(e).__name__}: {str(e)[:140]}"
-    return out
-
-
 @app.get("/api/accounts")
 async def list_accounts(authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
-    rows = supabase.table("sender_accounts").select("id, email, created_at") \
-        .eq("user_id", user_id).order("created_at").execute().data or []
-    return {"accounts": rows}
+    rows = _db_query(
+        "SELECT id, email, created_at FROM sender_accounts WHERE user_id = %s ORDER BY created_at",
+        (user_id,))
+    return {"accounts": [
+        {"id": str(r["id"]), "email": r["email"],
+         "created_at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else r["created_at"]}
+        for r in rows]}
 
 
 @app.post("/api/accounts")
@@ -714,19 +714,18 @@ async def add_account(body: AccountIn, authorization: Optional[str] = Header(def
         raise HTTPException(status_code=400, detail="邮箱格式不对")
     if not body.password.strip():
         raise HTTPException(status_code=400, detail="授权码不能为空")
-    supabase.table("sender_accounts").upsert({
-        "user_id": user_id,
-        "email": email,
-        "pass_enc": _encrypt_pass(body.password.strip()),
-    }, on_conflict="user_id,email").execute()
+    _db_exec(
+        "INSERT INTO sender_accounts (user_id, email, pass_enc) VALUES (%s, %s, %s) "
+        "ON CONFLICT (user_id, email) DO UPDATE SET pass_enc = EXCLUDED.pass_enc",
+        (user_id, email, _encrypt_pass(body.password.strip())))
     return {"success": True}
 
 
 @app.delete("/api/accounts/{account_id}")
 async def delete_account(account_id: str, authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
-    supabase.table("sender_accounts").delete() \
-        .eq("id", account_id).eq("user_id", user_id).execute()
+    _db_exec("DELETE FROM sender_accounts WHERE id = %s AND user_id = %s",
+             (account_id, user_id))
     return {"success": True}
 
 
@@ -773,13 +772,13 @@ async def track_email_open(email_id: str, request: Request):
     if request.cookies.get(SENDER_COOKIE_NAME) == "1":
         return _pixel_response()
     try:
-        rows = supabase.table("emails").select("open_count, first_open_time") \
-            .eq("id", email_id).execute().data or []
+        rows = _db_query(
+            "SELECT open_count, first_open_time FROM emails WHERE id = %s", (email_id,))
         if rows:
-            patch = {"open_count": (rows[0].get("open_count") or 0) + 1}
-            if not rows[0].get("first_open_time"):
-                patch["first_open_time"] = datetime.now(timezone.utc).isoformat()
-            supabase.table("emails").update(patch).eq("id", email_id).execute()
+            new_count = (rows[0].get("open_count") or 0) + 1
+            first_open = rows[0].get("first_open_time") or datetime.now(timezone.utc).isoformat()
+            _db_exec("UPDATE emails SET open_count = %s, first_open_time = %s WHERE id = %s",
+                     (new_count, first_open, email_id))
     except Exception as e:
         print(f"Tracking error for {email_id}: {e}")
 
