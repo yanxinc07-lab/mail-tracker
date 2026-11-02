@@ -138,7 +138,6 @@
     }
     .form-textarea { resize: vertical; min-height: 130px; font-family: inherit; line-height: 1.6; }
 
-    /* 文件上传拖拽框 */
     .dropzone {
       border: 2px dashed rgba(45, 106, 79, 0.3);
       background: #FAFBF9;
@@ -158,7 +157,6 @@
       background: #F2F8F4;
     }
 
-    /* 上传成功状态勋章 */
     .uploaded-badge {
       display: none;
       align-items: center;
@@ -173,7 +171,6 @@
       font-weight: 600;
     }
 
-    /* 预览表格 */
     .table-wrapper {
       max-height: 200px;
       overflow-y: auto;
@@ -185,7 +182,6 @@
     th { background: #F8FAF9; padding: 10px 12px; color: #5E7267; position: sticky; top: 0; }
     td { padding: 8px 12px; border-top: 1px solid rgba(36, 51, 44, 0.05); color: #202D26; }
 
-    /* 变量效果即时预览框 */
     .preview-box {
       margin-top: 16px;
       padding: 16px 20px;
@@ -218,7 +214,6 @@
       padding-top: 8px;
     }
 
-    /* 发信提交按钮与进度条 */
     .btn-submit {
       width: 100%;
       padding: 14px 0;
@@ -259,7 +254,6 @@
       line-height: 1.5;
     }
 
-    /* 触达战报弹窗 Modal */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -323,14 +317,13 @@
   </style>
 
   <script>
-    const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZXFocXVvcmp5Y2pkeGJ1cnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTY5MjUsImV4cCI6MjEwNTE5MjkyNX0.JzTkH-xoiExeSxHGu420PgVfUNV_Jp_zZoJQn3yqY2g";
+    const SUPABASE_URL = "https://YOUR_SUPABASE_PROJECT_ID.supabase.co";
+    const SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY";
     const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     let currentUser = null;
     let parsedRecipients = [];
 
-    // 初始化验证登录态并恢复已存账号
     async function initAuth() {
       const { data: { session } } = await client.auth.getSession();
       if (!session || !session.user) {
@@ -341,11 +334,12 @@
       currentUser = session.user;
       loadSavedAccounts();
       setupDragAndDrop();
+      refreshTemplateAccountOptions();
+      const tplAcc = document.getElementById("tplAccount");
+      if (tplAcc) tplAcc.addEventListener("focus", refreshTemplateAccountOptions);
     }
 
-    // 设置拖拽支持，杜绝浏览器默认下载行为
     function setupDragAndDrop() {
-      // 阻止整个窗口的默认打开行为
       window.addEventListener("dragover", e => e.preventDefault(), false);
       window.addEventListener("drop", e => e.preventDefault(), false);
 
@@ -374,7 +368,6 @@
       });
     }
 
-    // 动态添加发信账号行
     function addAccountRow(emailVal = "", passVal = "") {
       const list = document.getElementById("accountsList");
       const div = document.createElement("div");
@@ -385,6 +378,9 @@
         <button class="btn-del-account" title="删除该账号" onclick="removeAccountRow(this)">✕</button>
       `;
       list.appendChild(div);
+      // 账号池有变动时，同步刷新下方“邮箱模板”面板的账号下拉
+      div.querySelectorAll("input").forEach(inp => inp.addEventListener("change", refreshTemplateAccountOptions));
+      refreshTemplateAccountOptions();
     }
 
     function removeAccountRow(btn) {
@@ -394,9 +390,16 @@
         return;
       }
       btn.parentElement.remove();
+      refreshTemplateAccountOptions();
     }
 
     function saveAccountsLocally() {
+      // 只有勾选了“保存发信配置到本机”才保存；没勾就清除已存的，绝不默认保存
+      const chk = document.getElementById("saveAccountsChk");
+      if (!chk || !chk.checked) {
+        localStorage.removeItem("mailtracker_smtp_accs");
+        return;
+      }
       const rows = document.querySelectorAll(".account-row");
       const accs = [];
       rows.forEach(r => {
@@ -405,6 +408,11 @@
         if (em && pw) accs.push({ email: em, pass: pw });
       });
       localStorage.setItem("mailtracker_smtp_accs", JSON.stringify(accs));
+    }
+
+    function onSaveAccountsToggle() {
+      // 勾选状态变化时立即生效：勾上就存当前配置，取消就立刻清除已存的
+      saveAccountsLocally();
     }
 
     function loadSavedAccounts() {
@@ -416,6 +424,8 @@
           const accs = JSON.parse(saved);
           if (accs.length > 0) {
             accs.forEach(a => addAccountRow(a.email, a.pass));
+            const chk = document.getElementById("saveAccountsChk");
+            if (chk) chk.checked = true;
             return;
           }
         } catch(e) {}
@@ -423,13 +433,11 @@
       addAccountRow();
     }
 
-    // 文件选择器上传处理
     function handleFile(e) {
       const file = e.target.files[0];
       if (file) processExcelFile(file);
     }
 
-    // 核心解析与直观上传提示
     function processExcelFile(file) {
       const reader = new FileReader();
       reader.onload = function(evt) {
@@ -439,7 +447,6 @@
         const worksheet = workbook.Sheets[firstSheetName];
         parsedRecipients = XLSX.utils.sheet_to_json(worksheet);
 
-        // 呈现明显的已上传高亮与状态勋章
         const dropzone = document.getElementById("fileDropzone");
         dropzone.classList.add("uploaded");
         
@@ -453,7 +460,6 @@
       reader.readAsArrayBuffer(file);
     }
 
-    // 渲染表格数据
     function renderPreview() {
       const box = document.getElementById("tableBox");
       const info = document.getElementById("uploadInfo");
@@ -463,7 +469,11 @@
         return;
       }
 
-      info.innerHTML = `已自动解析前 5 行名单预览：`;
+      if (parsedRecipients.length > 5) {
+        info.innerHTML = `已自动解析前 5 行名单预览：<br>…等共计 ${parsedRecipients.length} 位联系人已就绪`;
+      } else {
+        info.innerHTML = `已自动解析名单预览（共 ${parsedRecipients.length} 位联系人）：`;
+      }
       const keys = Object.keys(parsedRecipients[0]);
       let tableHtml = `<table><thead><tr>`;
       keys.forEach(k => tableHtml += `<th>${k}</th>`);
@@ -479,7 +489,6 @@
       box.style.display = "block";
     }
 
-    // 实时计算第一位收件人的变量替换效果
     function updateRealtimePreview() {
       const previewCard = document.getElementById("previewBox");
       if (!parsedRecipients || parsedRecipients.length === 0) {
@@ -505,11 +514,162 @@
 
       document.getElementById("previewRecipientHint").innerText = `针对第一位收件人 [ ${recipientName} (${recipientEmail}) ] 的实装渲染效果：`;
       document.getElementById("previewSubjectText").innerText = `主题：${finalSubject}`;
-      document.getElementById("previewContentText").innerText = finalBody;
+      // 正文预览把商品链接行拼装也应用上，并按 HTML 渲染出实际效果（发送以后端拼装为准）
+      const assembledBody = assembleLinkForPreview(finalBody);
+      document.getElementById("previewContentText").innerHTML = renderPreviewHtml(assembledBody);
       previewCard.style.display = "block";
     }
 
-    // 呼叫后端发信引擎
+    function escapeHtmlText(s) {
+      return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function escapeRegExp(s) {
+      return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    // 与后端 assemble_content 规则保持一致的轻量拼装，仅供预览；实际发送以后端拼装结果为准。
+    function assembleLinkForPreview(content) {
+      const chk = document.getElementById("linkEnabledChk");
+      const url = (document.getElementById("linkUrlInput")?.value || "").trim();
+      const text = document.getElementById("linkTextInput")?.value || "";
+      const enabled = !!(chk && chk.checked) && /^https?:\/\//i.test(url);
+      const block = enabled ? `<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>` : "";
+      const markers = ["[[商品链接]]", "{{product_link_block}}"];
+      const hasMarker = markers.some(m => content.includes(m));
+      if (hasMarker) {
+        let out = content;
+        for (const m of markers) {
+          if (!out.includes(m)) continue;
+          const solo = new RegExp(`<p[^>]*>\\s*${escapeRegExp(m)}\\s*<\/p>`, "gi");
+          if (block) {
+            out = out.replace(solo, block).split(m).join(block);
+          } else {
+            out = out.replace(solo, "");
+            out = out.split("\n").filter(ln => {
+              if (!ln.includes(m)) return true;
+              return ln.replace(/<[^>]+>/g, "").trim() !== m;
+            }).join("\n").split(m).join("");
+          }
+        }
+        return out;
+      }
+      if (!block) return content;
+      const pRe = /<p[^>]*>[\s\S]*?<\/p>/gi;
+      let match;
+      while ((match = pRe.exec(content)) !== null) {
+        if (match[0].toLowerCase().includes("collaborate")) {
+          return content.slice(0, match.index) + block + content.slice(match.index);
+        }
+      }
+      const idx = content.toLowerCase().indexOf("collaborate");
+      if (idx !== -1) {
+        const lineStart = content.lastIndexOf("\n", idx) + 1;
+        return content.slice(0, lineStart) + block + "\n" + content.slice(lineStart);
+      }
+      return content + block;
+    }
+
+    function renderPreviewHtml(htmlStr) {
+      // 预览按 HTML 渲染（这样能看到链接行拼装后的真实效果）；先去掉脚本/表单等危险
+      // 节点和 on* 事件属性，避免模板里的脚本在工作台页面里执行
+      const doc = new DOMParser().parseFromString(htmlStr || "", "text/html");
+      doc.querySelectorAll("script, iframe, object, embed, form, link, meta").forEach(n => n.remove());
+      doc.querySelectorAll("*").forEach(n => {
+        [...n.attributes].forEach(a => { if (/^on/i.test(a.name)) n.removeAttribute(a.name); });
+      });
+      return doc.body.innerHTML;
+    }
+
+    // ---------- 邮箱模板读取（GET /api/mailbox/templates） ----------
+    let mailboxTemplates = [];
+    let templateAccountCreds = [];
+
+    function refreshTemplateAccountOptions() {
+      const sel = document.getElementById("tplAccount");
+      if (!sel) return;
+      const prev = sel.value;
+      templateAccountCreds = [];
+      document.querySelectorAll(".account-row").forEach(r => {
+        const em = r.querySelector(".acc-email")?.value.trim();
+        const pw = r.querySelector(".acc-pass")?.value.trim();
+        if (em) templateAccountCreds.push({ email: em, pass: pw || "" });
+      });
+      sel.innerHTML = "";
+      templateAccountCreds.forEach(a => {
+        const opt = document.createElement("option");
+        opt.value = a.email;
+        opt.textContent = a.email;
+        sel.appendChild(opt);
+      });
+      if (prev && templateAccountCreds.some(a => a.email === prev)) sel.value = prev;
+      syncTplProviderFromAccount();
+    }
+
+    function syncTplProviderFromAccount() {
+      const sel = document.getElementById("tplAccount");
+      const prov = document.getElementById("tplProvider");
+      if (!sel || !prov || !sel.value) return;
+      const domain = sel.value.split("@").pop().toLowerCase();
+      if (domain.includes("gmail")) prov.value = "gmail";
+      else if (domain.includes("outlook") || domain.includes("hotmail") || domain.includes("live")) prov.value = "outlook";
+    }
+
+    async function readMailboxTemplates() {
+      refreshTemplateAccountOptions();
+      const statusEl = document.getElementById("tplStatus");
+      const listEl = document.getElementById("tplList");
+      const provider = document.getElementById("tplProvider").value;
+      const account = document.getElementById("tplAccount").value;
+      const cred = templateAccountCreds.find(a => a.email === account);
+      listEl.style.display = "none";
+      if (!account || !cred) {
+        statusEl.innerText = "请先在上方发信账号池里填写一个发信邮箱，再回来读取模板。";
+        return;
+      }
+      if (!cred.pass) {
+        statusEl.innerText = "该账号还没填授权码，无法登录邮箱读取模板，请先在账号池里补上授权码。";
+        return;
+      }
+      statusEl.innerText = "正在读取邮箱模板（只读，不会改动邮箱里的任何东西）…";
+      try {
+        const qs = new URLSearchParams({ provider, account, password: cred.pass });
+        const res = await fetch(`/api/mailbox/templates?${qs.toString()}`);
+        const data = await res.json();
+        if (!data.success) {
+          // 后端返回的中文说明（例如 Outlook 需要先接 OAuth）直接展示给用户，不静默失败
+          statusEl.innerText = data.message || "读取失败，未知错误。";
+          return;
+        }
+        mailboxTemplates = data.templates || [];
+        listEl.innerHTML = "";
+        mailboxTemplates.forEach((t, i) => {
+          const opt = document.createElement("option");
+          opt.value = i;
+          opt.textContent = t.subject || "（无主题）";
+          listEl.appendChild(opt);
+        });
+        if (mailboxTemplates.length === 0) {
+          statusEl.innerText = "草稿箱里没有读到任何条目。";
+          return;
+        }
+        listEl.style.display = "block";
+        statusEl.innerText = `已读到 ${mailboxTemplates.length} 条（来源文件夹：${data.folder || "Drafts"}）。${data.note || ""} 在上方下拉里选中一条，即可把它的主题和正文填入下方输入框。`;
+      } catch (e) {
+        statusEl.innerText = "读取失败：网络错误或后端未启动。";
+      }
+    }
+
+    function onMailboxTemplateChosen() {
+      const listEl = document.getElementById("tplList");
+      const t = mailboxTemplates[Number(listEl.value)];
+      if (!t) return;
+      document.getElementById("emailSubject").value = t.subject || "";
+      document.getElementById("emailBody").value = t.html || "";
+      document.getElementById("tplStatus").innerText = "已把所选模板填入下方主题/正文输入框。这只是副本：在这里怎么改都不会改动邮箱里的原模板，发送时以这里的内容为准。";
+      updateRealtimePreview();
+    }
+
     async function startBatchSend() {
       if (!currentUser) {
         alert("请先登录账号！");
@@ -551,7 +711,6 @@
       progContainer.style.display = "block";
       progBar.style.width = "0%";
 
-      // 组装发送队列
       const payloadList = parsedRecipients.map(row => {
         let content = emailTemplate;
         let subject = emailSubject;
@@ -563,7 +722,7 @@
         return {
           to_email: row.email || row.Email || row["邮箱"] || row["收件人"] || "",
           subject: subject,
-          content: content.replace(/\n/g, "<br>")
+          content: content.replace(/\\n/g, "<br>")
         };
       }).filter(item => item.to_email && item.to_email.includes("@"));
 
@@ -574,46 +733,73 @@
         return;
       }
 
-      let totalSent = 0;
-      let totalFailed = 0;
-
-      for (let i = 0; i < payloadList.length; i++) {
-        const currentAccount = availableAccounts[i % availableAccounts.length];
-        const targetEmail = payloadList[i];
-
-        sendBtn.innerText = `⏳ 正在投递中 (${i + 1}/${payloadList.length}) · 轮换调度中...`;
-
-        try {
-          const res = await fetch("/api/send_batch", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              user_email: currentUser.email,
-              smtp_account: currentAccount.email,
-              smtp_password: currentAccount.pass,
-              emails: [targetEmail]
-            })
-          });
-          const result = await res.json();
-          if (result.success && result.sent_count > 0) {
-            totalSent++;
-          } else {
-            totalFailed++;
-          }
-        } catch (err) {
-          totalFailed++;
+      // 整批一次提交给后端后台任务：关掉页面也不会中断，进度靠轮询任务状态
+      let taskId = null;
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_email: currentUser.email,
+            accounts: availableAccounts.map(a => ({ email: a.email, password: a.pass })),
+            emails: payloadList,
+            daily_cap: 50,
+            interval_seconds: 0,
+            link_enabled: document.getElementById("linkEnabledChk")?.checked || false,
+            link_url: document.getElementById("linkUrlInput")?.value.trim() || "",
+            link_text: document.getElementById("linkTextInput")?.value || ""
+          })
+        });
+        const result = await res.json();
+        if (!result.success || !result.task_id) {
+          alert("创建发送任务失败：" + (result.detail || result.message || "未知错误"));
+          sendBtn.disabled = false;
+          progContainer.style.display = "none";
+          return;
         }
-
-        const percentage = Math.round(((i + 1) / payloadList.length) * 100);
-        progBar.style.width = percentage + "%";
+        taskId = result.task_id;
+      } catch (err) {
+        alert("创建发送任务失败：网络错误");
+        sendBtn.disabled = false;
+        progContainer.style.display = "none";
+        return;
       }
 
-      // 弹出触达战报弹窗
-      openReportModal(totalSent, totalFailed);
+      currentTaskId = taskId;
+      document.getElementById("taskControls").style.display = "flex";
 
-      sendBtn.disabled = false;
-      sendBtn.innerText = "🚀 开始批量触达";
-      progContainer.style.display = "none";
+      const poll = setInterval(async () => {
+        let t;
+        try {
+          const r = await fetch(`/api/tasks/${taskId}`);
+          t = await r.json();
+        } catch (e) {
+          return; // 网络抖动时下轮再试
+        }
+        const doneCount = t.sent + t.failed + (t.skipped || 0);
+        const percentage = t.total > 0 ? Math.round((doneCount / t.total) * 100) : 0;
+        progBar.style.width = percentage + "%";
+        sendBtn.innerText = `⏳ 后台投递中 (${doneCount}/${t.total}) · 成功 ${t.sent} / 失败 ${t.failed}${t.status === "paused" ? " · 已暂停" : ""}`;
+
+        if (["done", "stopped", "failed"].includes(t.status)) {
+          clearInterval(poll);
+          document.getElementById("taskControls").style.display = "none";
+          currentTaskId = null;
+          openReportModal(t.sent, t.failed);
+          sendBtn.disabled = false;
+          sendBtn.innerText = "🚀 开始批量触达";
+          progContainer.style.display = "none";
+        }
+      }, 1000);
+    }
+
+    let currentTaskId = null;
+
+    async function taskControl(action) {
+      if (!currentTaskId) return;
+      try {
+        await fetch(`/api/tasks/${currentTaskId}/${action}`, { method: "POST" });
+      } catch (e) {}
     }
 
     function openReportModal(sent, failed) {
@@ -632,7 +818,6 @@
 <body>
 
   <div class="container">
-    <!-- 顶部全向回廊导航 -->
     <div class="header-box">
       <div class="title">🚀 批量触达工作台</div>
       <div class="nav-links">
@@ -649,7 +834,11 @@
         <button class="btn-add-account" onclick="addAccountRow()">+ 添加发信邮箱</button>
       </div>
       <div id="accountsList"></div>
-      <span class="help-hint">配置的账号会自动加密保存在本地浏览器中，下次进入免重新输入。发信时系统会自动在多账号间轮流平分配额。</span>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#33473C; margin-top:8px; cursor:pointer;">
+        <input type="checkbox" id="saveAccountsChk" onchange="onSaveAccountsToggle()" />
+        保存发信配置到本机（下次打开自动带入）
+      </label>
+      <span class="help-hint">如实说明：账号和授权码是<b>明文</b>保存在本地浏览器（localStorage）里，没有加密；只有勾选上面这项才保存，不勾选则不会保存、已保存的也会清除。共用电脑请勿勾选。发信时系统会自动在多账号间轮流平分配额。</span>
     </div>
 
     <!-- 2. 表格导入与预览 -->
@@ -667,6 +856,50 @@
       <div id="tableBox" class="table-wrapper" style="display:none;"></div>
     </div>
 
+    <!-- 邮箱模板（读邮箱里存着的模板）+ 商品链接行设置 -->
+    <div class="card">
+      <div class="section-title">
+        <span>📧 邮箱模板 &amp; 商品链接行</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">模板来源邮箱（从上方账号池里选一个已添加的发信账号）</label>
+        <div style="display:grid; grid-template-columns: 160px 1fr auto; gap:12px; align-items:center;">
+          <select id="tplProvider" class="form-input">
+            <option value="gmail">Gmail</option>
+            <option value="outlook">Outlook</option>
+          </select>
+          <select id="tplAccount" class="form-input" onchange="syncTplProviderFromAccount()"></select>
+          <button class="btn-add-account" style="height:38px; padding:0 16px;" onclick="readMailboxTemplates()">📥 读取邮箱模板</button>
+        </div>
+        <span class="help-hint">读取的是邮箱草稿箱里存着的模板（Gmail 的模板在数据层就是草稿）。只读，不会改动邮箱里的任何东西。Outlook 个人账号因微软停用密码登录，点读取会直接给出需要 OAuth 的中文说明。</span>
+      </div>
+      <div class="form-group" style="margin-bottom:6px;">
+        <label class="form-label">读到的模板（按主题选一条，主题和正文会填入下方输入框）</label>
+        <select id="tplList" class="form-input" style="display:none;" onchange="onMailboxTemplateChosen()"></select>
+        <span id="tplStatus" class="help-hint">尚未读取。填入的只是副本，怎么改都不会动邮箱里的原模板。</span>
+      </div>
+
+      <div style="border-top:1px dashed rgba(36,51,44,0.12); margin:16px 0;"></div>
+
+      <div class="form-group">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#33473C; cursor:pointer;">
+          <input type="checkbox" id="linkEnabledChk" onchange="updateRealtimePreview()" />
+          发送时在正文里插入商品链接行
+        </label>
+        <span class="help-hint">拼装规则（后端发送时执行，下方预览同规则）：正文里写了 [[商品链接]] 标记就把链接行放到标记处；没写标记就自动插到合作邀约段（collaborate 那段）之前；关掉开关则标记整行删除、不留空链接。</span>
+      </div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div class="form-group">
+          <label class="form-label">链接地址</label>
+          <input type="text" id="linkUrlInput" class="form-input" value="https://shop.tiktok.com/us/pdp/1732256087876277185" autocomplete="off" oninput="updateRealtimePreview()" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">链接文字</label>
+          <input type="text" id="linkTextInput" class="form-input" value="👉 See it on TikTok Shop — already 2.9K+ sold ✨" autocomplete="off" oninput="updateRealtimePreview()" />
+        </div>
+      </div>
+    </div>
+
     <!-- 3. 内容与变量定制 -->
     <div class="card">
       <div class="section-title">
@@ -682,10 +915,9 @@
 
 注意到你在相关领域的精彩分享，我们非常期待与你合作！
 ..." autocomplete="off" oninput="updateRealtimePreview()"></textarea>
-        <span class="help-hint">可在正文中使用大括号包裹表格中的表头名（如 {{name}}），系统会自动为每位收件人个性化替换</span>
+        <span class="help-hint">可在正文中使用大括号包裹表格中的表头名（如 {{name}}），系统会自动为每位收件人个性化替换；想精确控制商品链接行插入的位置，在正文里单独一行写 [[商品链接]]，发送时会被换成上面设置的链接行（开关关闭时整行删除）</span>
       </div>
 
-      <!-- 变量代入效果即时预览框 -->
       <div id="previewBox" class="preview-box">
         <div class="preview-header">
           <span>👁️ 首封邮件变量渲染预览</span>
@@ -695,16 +927,20 @@
         <div id="previewContentText" class="preview-content"></div>
       </div>
 
-      <!-- 进度条 -->
       <div id="progressContainer" class="progress-bar-container">
         <div id="progressBar" class="progress-bar"></div>
       </div>
 
       <button id="btnStartOutreach" class="btn-submit" onclick="startBatchSend()">🚀 开始批量触达</button>
+      <div id="taskControls" style="display:none; gap:8px; margin-top:10px;">
+        <button class="btn-add-account" onclick="taskControl('pause')">⏸ 暂停</button>
+        <button class="btn-add-account" onclick="taskControl('resume')">▶ 继续</button>
+        <button class="btn-add-account" onclick="taskControl('stop')">⏹ 停止</button>
+        <span class="help-hint" style="align-self:center;">任务在后端后台运行，关掉本页也不会中断。</span>
+      </div>
     </div>
   </div>
 
-  <!-- 触达战报反馈弹窗 -->
   <div id="reportModal" class="modal-overlay">
     <div class="modal-card">
       <div class="modal-icon">🎉</div>

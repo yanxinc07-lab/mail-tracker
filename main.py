@@ -1,605 +1,669 @@
 import os
-import io
-import zipfile
-import base64
-from datetime import datetime, timedelta
-from fastapi import FastAPI, Response, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+import re
+import html as html_lib
+import time
+import uuid
+import imaplib
+import smtplib
+import threading
+from email import message_from_bytes
+from email.header import decode_header
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from supabase import create_client, Client
+import io
 
-app = FastAPI()
+# ==========================================
+# 环境变量与配置（已脱敏）
+# ==========================================
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://YOUR_SUPABASE_PROJECT_ID.supabase.co")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "YOUR_SUPABASE_SERVICE_ROLE_KEY")
+BASE_URL = os.getenv("BASE_URL", "https://YOUR_APP_NAME.onrender.com")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+app = FastAPI(title="MailTracker Batch Outreach Engine")
+
+# 挂载静态目录与模板
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# 1x1 像素透明 GIF 字节流
+TRANSPARENT_1PX_GIF = (
+    b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff"
+    b"\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00"
+    b"\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
 )
 
-# 挂载静态资源（让 style.css 可以正常通过 /static/style.css 访问）
-os.makedirs("static", exist_ok=True)
-os.makedirs("templates", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# 发件人设备标记 Cookie 名：访问工作台/大盘时种下，/track 见到它就不记已读
+SENDER_COOKIE_NAME = "is_sender_device"
+SENDER_COOKIE_MAX_AGE = 365 * 24 * 3600  # 一年
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# 商品链接行默认值（用户已确认过的商品短链接与文案，2026-11-02）
+DEFAULT_LINK_URL = "https://shop.tiktok.com/us/pdp/1732256087876277185"
+DEFAULT_LINK_TEXT = "👉 See it on TikTok Shop — already 2.9K+ sold ✨"
+# 正文里可用的链接行占位标记：发送拼装时按开关替换/删除
+LINK_MARKERS = ("[[商品链接]]", "{{product_link_block}}")
 
-def get_db():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
-
-def init_db():
-    if not DATABASE_URL:
-        return
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS emails (
-            id TEXT PRIMARY KEY,
-            recipient TEXT DEFAULT '-',
-            subject TEXT,
-            send_time TEXT,
-            status TEXT,
-            open_count INTEGER DEFAULT 0,
-            first_open_time TEXT,
-            user_id TEXT
-        );
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS email_logs (
-            log_id SERIAL PRIMARY KEY,
-            email_id TEXT REFERENCES emails(id) ON DELETE CASCADE,
-            open_time TEXT,
-            is_scanner BOOLEAN DEFAULT FALSE
-        );
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
-
-try:
-    init_db()
-except Exception as e:
-    print(f"Database init error: {e}")
-
-PIXEL_GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-PIXEL_DATA = base64.b64decode(PIXEL_GIF_BASE64)
-
-# 读取 templates 里的 index.html（原生读取，零第三方依赖）
-@app.get("/", response_class=HTMLResponse)
-def landing_page():
-    path = os.path.join("templates", "index.html")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    return "<h3>首页文件加载中，请稍后刷新</h3>"
-
-# 读取 templates 里的 dashboard.html（原生读取，零第三方依赖）
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard_page():
-    path = os.path.join("templates", "dashboard.html")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    return "<h3>大盘文件加载中，请稍后刷新</h3>"
-    # 读取 templates 里的 outreach.html (批量触达独立页面)
-@app.get("/outreach", response_class=HTMLResponse)
-def outreach_page():
-    path = os.path.join("templates", "outreach.html")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    return "<h3>批量触达页面加载中，请稍后刷新</h3>"
-
-# 404 全局防呆兜底：任何错误地址直接跳回官网首页
-@app.exception_handler(StarletteHTTPException)
-async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
-    if exc.status_code == 404:
-        return RedirectResponse(url="/")
-    return Response(content=str(exc.detail), status_code=exc.status_code)
-
-# 动态打包插件下载接口（单层平级解压 + 快捷键与鼠标双支持）
-@app.get("/api/download_extension")
-def download_extension():
-    manifest_code = """{
-  "manifest_version": 3,
-  "name": "达人邮件追踪助手",
-  "version": "1.0",
-  "description": "Gmail 达人发信打开率智能追踪系统",
-  "permissions": [
-    "storage"
-  ],
-  "action": {
-    "default_popup": "popup.html"
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://mail.google.com/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ]
-}"""
-
-    popup_html_code = """<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    body { width: 280px; padding: 16px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #334155; }
-    h3 { margin: 0 0 12px 0; font-size: 16px; color: #0f172a; display: flex; align-items: center; gap: 6px; }
-    .input-box { width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 10px; font-size: 13px; outline: none; }
-    .btn { width: 100%; background: #2563eb; color: white; border: none; padding: 8px 0; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
-    .btn:hover { background: #1d4ed8; }
-    .status-panel { display: none; }
-    .user-tag { background: #e0f2fe; color: #0284c7; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; word-break: break-all; }
-    .logout-btn { background: #f1f5f9; color: #ef4444; border: 1px solid #cbd5e1; margin-top: 8px; }
-    .msg { font-size: 12px; margin-top: 8px; text-align: center; }
-  </style>
-</head>
-<body>
-  <h3>📧 达人追踪助手</h3>
-  <div id="loginView">
-    <input type="email" id="emailInput" class="input-box" placeholder="输入大盘注册邮箱" />
-    <input type="password" id="pwdInput" class="input-box" placeholder="输入密码" />
-    <button id="loginBtn" class="btn">登 录 激 活</button>
-    <div id="msgBox" class="msg"></div>
-  </div>
-  <div id="userView" class="status-panel">
-    <div class="user-tag">
-      <div>已连接账号：</div>
-      <b id="displayEmail">-</b>
-    </div>
-    <button id="openDashBtn" class="btn">打开我的追踪大盘</button>
-    <button id="logoutBtn" class="btn logout-btn">切换 / 退出账号</button>
-  </div>
-  <script src="popup.js"></script>
-</body>
-</html>"""
-
-    popup_js_code = """const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZXFocXVvcmp5Y2pkeGJ1cnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MTY5MjUsImV4cCI6MjEwNTE5MjkyNX0.JzTkH-xoiExeSxHGu420PgVfUNV_Jp_zZoJQn3yqY2g";
-
-chrome.storage.local.get(["userId", "userEmail"], function (res) {
-  if (res.userId && res.userEmail) {
-    showUserView(res.userEmail);
-  } else {
-    showLoginView();
-  }
-});
-
-function showUserView(email) {
-  document.getElementById("loginView").style.display = "none";
-  document.getElementById("userView").style.display = "block";
-  document.getElementById("displayEmail").innerText = email;
-}
-
-function showLoginView() {
-  document.getElementById("loginView").style.display = "block";
-  document.getElementById("userView").style.display = "none";
-  document.getElementById("emailInput").value = "";
-  document.getElementById("pwdInput").value = "";
-  document.getElementById("msgBox").innerText = "";
-}
-
-document.getElementById("loginBtn").addEventListener("click", async function () {
-  const email = document.getElementById("emailInput").value.trim();
-  const password = document.getElementById("pwdInput").value;
-  const msgBox = document.getElementById("msgBox");
-
-  if (!email || !password) {
-    msgBox.style.color = "#ef4444";
-    msgBox.innerText = "请填写邮箱和密码";
-    return;
-  }
-
-  msgBox.style.color = "#2563eb";
-  msgBox.innerText = "正在验证...";
-
-  try {
-    const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-      method: "POST",
-      headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await resp.json();
-
-    if (!resp.ok) {
-      msgBox.style.color = "#ef4444";
-      msgBox.innerText = "登录失败: " + (data.error_description || data.msg || "密码错误");
-      return;
-    }
-
-    const userId = data.user.id;
-    const userEmail = data.user.email;
-
-    chrome.storage.local.set({ userId: userId, userEmail: userEmail }, function () {
-      showUserView(userEmail);
-    });
-  } catch (err) {
-    msgBox.style.color = "#ef4444";
-    msgBox.innerText = "网络请求失败，请稍后重试";
-  }
-});
-
-document.getElementById("logoutBtn").addEventListener("click", function () {
-  chrome.storage.local.remove(["userId", "userEmail"], function () {
-    showLoginView();
-  });
-});
-
-document.getElementById("openDashBtn").addEventListener("click", function () {
-  chrome.tabs.create({ url: "https://mail-tracker-e7da.onrender.com/dashboard" });
-});"""
-
-    content_js_code = """function findActiveComposeBox(activeEl) {
-  if (activeEl) {
-    const box = activeEl.closest('div[role="region"], div[aria-label*="写信"], div[aria-label*="Compose"], table.aoI, div.M9');
-    if (box) return box;
-  }
-  const allBoxes = document.querySelectorAll('div[role="region"], div[aria-label*="写信"], div[aria-label*="Compose"], table.aoI');
-  for (let b of allBoxes) {
-    if (b.offsetWidth > 0 && b.offsetHeight > 0) return b;
-  }
-  return document.body;
-}
-
-function triggerTrack(composeBox) {
-  if (!composeBox || composeBox.__tracked_sending) return;
-  composeBox.__tracked_sending = true;
-  setTimeout(() => { composeBox.__tracked_sending = false; }, 3000);
-
-  let recipientEmail = "-";
-  const emailChips = composeBox.querySelectorAll('[email]');
-  if (emailChips.length > 0) {
-    const list = Array.from(emailChips).map(el => el.getAttribute('email')).filter(Boolean);
-    if (list.length > 0) recipientEmail = list.join(", ");
-  }
-  
-  if (recipientEmail === "-") {
-    const hiddenTo = composeBox.querySelector('input[name="to"], textarea[name="to"], [aria-label*="收件人"], [aria-label*="To"]');
-    if (hiddenTo && (hiddenTo.value || hiddenTo.innerText)) {
-      recipientEmail = (hiddenTo.value || hiddenTo.innerText).trim();
-    }
-  }
-
-  const subjectInput = composeBox.querySelector('input[name="subjectbox"], input[name="subject"]');
-  const subject = subjectInput ? (subjectInput.value.trim() || "无主题邮件") : "无主题邮件";
-
-  const trackId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-
-  const editableBody = composeBox.querySelector('div[aria-label*="邮件正文"], div[aria-label*="Message Body"], div[role="textbox"]');
-  if (editableBody) {
-    const img = document.createElement("img");
-    img.src = `https://mail-tracker-e7da.onrender.com/t/${trackId}.png`;
-    img.width = 1;
-    img.height = 1;
-    img.style.display = "none";
-    editableBody.appendChild(img);
-  }
-
-  chrome.storage.local.get(["userId"], function (res) {
-    const currentUserId = res.userId || null;
-
-    fetch('https://mail-tracker-e7da.onrender.com/api/register', {
-      method: 'POST',
-      mode: 'cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: trackId,
-        recipient: recipientEmail,
-        subject: subject,
-        user_id: currentUserId
-      })
-    }).catch(err => console.error("Register err:", err));
-  });
-}
-
-document.addEventListener("click", function (e) {
-  const sendBtn = e.target.closest('div[role="button"][data-tooltip*="发送"], div[role="button"][data-tooltip*="Send"], div[aria-label*="Send"], div[aria-label*="发送"], .T-I-atl');
-  if (!sendBtn) return;
-  const composeBox = findActiveComposeBox(sendBtn);
-  triggerTrack(composeBox);
-}, true);
-
-window.addEventListener("keydown", function (e) {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-    const composeBox = findActiveComposeBox(document.activeElement);
-    triggerTrack(composeBox);
-  }
-}, true);"""
-
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        zip_file.writestr("manifest.json", manifest_code)
-        zip_file.writestr("popup.html", popup_html_code)
-        zip_file.writestr("popup.js", popup_js_code)
-        zip_file.writestr("content.js", content_js_code)
-    
-    zip_buffer.seek(0)
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=mail-tracker-extension.zip"}
-    )
-
-class RegisterRequest(BaseModel):
-    id: str
-    recipient: str = "-"
-    subject: str = ""
-    user_id: str = None
-
-@app.post("/api/register")
-def register_mail(req: RegisterRequest):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO emails (id, recipient, subject, send_time, status, open_count, first_open_time, user_id)
-        VALUES (%s, %s, %s, %s, '未读', 0, '-', %s)
-        ON CONFLICT (id) DO NOTHING;
-    """, (req.id, req.recipient, req.subject, now_str, req.user_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"status": "ok"}
-
-@app.get("/t/{track_id}.png")
-def track_pixel(track_id: str, request: Request):
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    headers = {
-        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-        "Expires": "0"
-    }
-
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM emails WHERE id = %s;", (track_id,))
-    row = cur.fetchone()
-
-    if row:
-        send_dt = datetime.strptime(row["send_time"], "%Y-%m-%d %H:%M:%S")
-        diff_seconds = (now - send_dt).total_seconds()
-        
-        if diff_seconds < 30:
-            cur.close()
-            conn.close()
-            return Response(content=PIXEL_DATA, media_type="image/gif", headers=headers)
-
-        is_scanner = False
-
-        cur.execute("INSERT INTO email_logs (email_id, open_time, is_scanner) VALUES (%s, %s, %s);", (track_id, now_str, is_scanner))
-
-        new_count = (row["open_count"] or 0) + 1
-        first_time = row["first_open_time"] if row["first_open_time"] != "-" else now_str
-        
-        new_status = row["status"]
-        if new_status == "未读":
-            new_status = "误扫" if is_scanner else "已读"
-        elif new_status == "误扫" and not is_scanner:
-            new_status = "已读"
-
-        cur.execute("""
-            UPDATE emails 
-            SET status = %s, open_count = %s, first_open_time = %s 
-            WHERE id = %s;
-        """, (new_status, new_count, first_time, track_id))
-
-        conn.commit()
-
-    cur.close()
-    conn.close()
-    return Response(content=PIXEL_DATA, media_type="image/gif", headers=headers)
-
-class UpdateStatusRequest(BaseModel):
-    id: str
-    status: str
-
-@app.post("/api/update_status")
-def update_status(req: UpdateStatusRequest):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE emails SET status = %s WHERE id = %s;", (req.status, req.id))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"status": "ok"}
-
-@app.delete("/api/logs/{log_id}")
-def delete_log(log_id: int):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT email_id FROM email_logs WHERE log_id = %s;", (log_id,))
-    log = cur.fetchone()
-    if not log:
-        cur.close()
-        conn.close()
-        return JSONResponse(status_code=404, content={"error": "Not found"})
-
-    email_id = log["email_id"]
-    cur.execute("DELETE FROM email_logs WHERE log_id = %s;", (log_id,))
-
-    cur.execute("SELECT open_time FROM email_logs WHERE email_id = %s ORDER BY open_time ASC;", (email_id,))
-    remaining_logs = cur.fetchall()
-    
-    new_count = len(remaining_logs)
-    new_first_time = remaining_logs[0]["open_time"] if new_count > 0 else "-"
-    new_status = "已读" if new_count > 0 else "未读"
-
-    cur.execute("""
-        UPDATE emails 
-        SET open_count = %s, first_open_time = %s, status = %s 
-        WHERE id = %s;
-    """, (new_count, new_first_time, new_status, email_id))
-
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"status": "ok", "new_count": new_count, "new_first_time": new_first_time}
-
-@app.get("/api/dashboard_data")
-def get_dashboard_data(time_range: str = "all", custom_start: str = "", custom_end: str = "", user_id: str = ""):
-    if not user_id:
-        return {"rows": [], "total_sent": 0, "total_opened": 0, "rate": "0.0%", "logs_map": {}}
-
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    now = datetime.now()
-    
-    where_parts = ["user_id = %s"]
-    params = [user_id]
-    
-    if custom_start and custom_end:
-        where_parts.append("send_time >= %s AND send_time <= %s")
-        params.extend([f"{custom_start} 00:00:00", f"{custom_end} 23:59:59"])
-    elif time_range == "today":
-        where_parts.append("send_time >= %s")
-        params.append(now.strftime("%Y-%m-%d 00:00:00"))
-    elif time_range == "yesterday":
-        y_start = (now - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
-        y_end = (now - timedelta(days=1)).strftime("%Y-%m-%d 23:59:59")
-        where_parts.append("send_time >= %s AND send_time <= %s")
-        params.extend([y_start, y_end])
-    elif time_range == "week":
-        where_parts.append("send_time >= %s")
-        params.append((now - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00"))
-    elif time_range == "month":
-        where_parts.append("send_time >= %s")
-        params.append((now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00"))
-    elif time_range == "quarter":
-        where_parts.append("send_time >= %s")
-        params.append((now - timedelta(days=90)).strftime("%Y-%m-%d 00:00:00"))
-
-    where_clause = "WHERE " + " AND ".join(where_parts)
-    cur.execute(f"SELECT * FROM emails {where_clause} ORDER BY send_time DESC;", tuple(params))
-    rows = cur.fetchall()
-
-    email_ids = [r["id"] for r in rows]
-    logs_map = {}
-    if email_ids:
-        cur.execute("SELECT * FROM email_logs WHERE email_id = ANY(%s) ORDER BY open_time ASC;", (email_ids,))
-        all_logs = cur.fetchall()
-        for log in all_logs:
-            logs_map.setdefault(log["email_id"], []).append(log)
-
-    cur.close()
-    conn.close()
-
-    total_sent = len(rows)
-    total_opened = sum(1 for r in rows if r["status"] == "已读")
-    rate = f"{(total_opened / total_sent * 100):.1f}%" if total_sent > 0 else "0.0%"
-
-    return {
-        "rows": rows,
-        "logs_map": logs_map,
-        "total_sent": total_sent,
-        "total_opened": total_opened,
-        "rate": rate
-    }
-    # ================= 批量触达与像素自动植入引擎 =================
-import smtplib
-import uuid
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from pydantic import BaseModel
-from typing import List
-
-class SingleEmailPayload(BaseModel):
+# ==========================================
+# 数据模型定义
+# ==========================================
+class EmailItem(BaseModel):
     to_email: str
     subject: str
     content: str
 
-class BatchSendRequest(BaseModel):
+class SendBatchRequest(BaseModel):
     user_email: str
     smtp_account: str
     smtp_password: str
-    emails: List[SingleEmailPayload]
+    emails: List[EmailItem]
+    # 商品链接行拼装参数（发送前对每封正文拼装一次，默认关闭）
+    link_enabled: bool = False
+    link_url: str = DEFAULT_LINK_URL
+    link_text: str = DEFAULT_LINK_TEXT
 
+class SmtpAccount(BaseModel):
+    email: str
+    password: str
+
+class BatchTaskRequest(BaseModel):
+    user_email: str
+    accounts: List[SmtpAccount]
+    emails: List[EmailItem]
+    daily_cap: int = 50
+    interval_seconds: float = 0
+    # 商品链接行拼装参数（发送前对每封正文拼装一次，默认关闭）
+    link_enabled: bool = False
+    link_url: str = DEFAULT_LINK_URL
+    link_text: str = DEFAULT_LINK_TEXT
+
+# ==========================================
+# SMTP 服务分发工具函数
+# ==========================================
+def get_smtp_host_and_port(smtp_account: str):
+    domain = smtp_account.split("@")[-1].lower()
+    if "gmail.com" in domain:
+        return "smtp.gmail.com", 465, True
+    elif "qq.com" in domain:
+        return "smtp.qq.com", 465, True
+    elif "163.com" in domain:
+        return "smtp.163.com", 465, True
+    elif "outlook.com" in domain or "hotmail.com" in domain:
+        return "smtp.office365.com", 587, False
+    else:
+        # 默认企业邮箱走通用 SSL 465
+        return f"smtp.{domain}", 465, True
+
+# ==========================================
+# 商品链接行拼装（变量替换之后、加追踪像素之前，对每封正文只执行一次）
+# ------------------------------------------
+# 规则（按顺序）：
+# 1. 正文里有标记 [[商品链接]] 或 {{product_link_block}}：
+#    开关开 → 标记换成链接行 HTML；开关关 → 标记整行删掉（不留空链接）。
+# 2. 无标记且开关开：在正文里找合作邀约段（含 collaborate 的 <p> 段，
+#    或纯文本里该句所在行），把链接行插到该段之前。
+# 3. 锚点也找不到：追加到正文末尾。追踪像素不在这里处理，仍由
+#    build_message 在拼装结果之后最后追加，保证像素永远在最末尾。
+# 安全：link_url 只允许 http/https，其它一律按关闭处理；link_text 先做
+# HTML 转义再拼入，防止模板文案里的 < > & 把正文结构打坏。
+# ==========================================
+def _link_block_html(link_url: str, link_text: str) -> str:
+    safe_url = html_lib.escape((link_url or "").strip(), quote=True)
+    safe_text = html_lib.escape(link_text or "")
+    return f'<p><a href="{safe_url}">{safe_text}</a></p>'
+
+def _marker_solo_p_pattern(marker: str):
+    """标记独占一整个 <p>...</p> 时的匹配（允许标记前后有空白）。"""
+    return re.compile(r"<p[^>]*>\s*" + re.escape(marker) + r"\s*</p>", re.IGNORECASE)
+
+def _remove_link_marker(content: str, marker: str) -> str:
+    # 标记独占 <p> 段：整段删
+    content = _marker_solo_p_pattern(marker).sub("", content)
+    if marker in content:
+        # 标记独占一整行（去掉标签后整行就只有标记）：整行删
+        def _marker_only_line(line: str) -> bool:
+            return re.sub(r"<[^>]+>", "", line).strip() == marker
+        content = "\n".join(
+            ln for ln in content.split("\n")
+            if marker not in ln or not _marker_only_line(ln)
+        )
+    # 还残留的（嵌在句子中间等）：只抹掉标记本身，不动其它内容
+    return content.replace(marker, "")
+
+def assemble_content(html: str, *, link_enabled: bool, link_url: str, link_text: str) -> str:
+    content = html or ""
+    url_ok = bool(link_url) and link_url.strip().lower().startswith(("http://", "https://"))
+    enabled = bool(link_enabled) and url_ok
+    block = _link_block_html(link_url, link_text) if enabled else ""
+
+    has_marker = any(m in content for m in LINK_MARKERS)
+    if has_marker:
+        for marker in LINK_MARKERS:
+            if marker not in content:
+                continue
+            if block:
+                # 独占 <p> 的标记整段换成链接行，避免 <p> 套 <p>；其余位置直接替换
+                content = _marker_solo_p_pattern(marker).sub(lambda _m: block, content)
+                content = content.replace(marker, block)
+            else:
+                content = _remove_link_marker(content, marker)
+        return content
+
+    if not block:
+        return content
+
+    # 无标记：找合作邀约段锚点（含 collaborate 的 <p> 段优先）
+    for m in re.finditer(r"<p[^>]*>.*?</p>", content, flags=re.IGNORECASE | re.DOTALL):
+        if "collaborate" in m.group(0).lower():
+            return content[:m.start()] + block + content[m.start():]
+    # 纯文本兜底：collaborate 所在行的行首之前
+    idx = content.lower().find("collaborate")
+    if idx != -1:
+        line_start = content.rfind("\n", 0, idx) + 1
+        return content[:line_start] + block + "\n" + content[line_start:]
+    # 锚点也找不到：追加到正文末尾（像素随后由 build_message 再追加，仍在最末尾）
+    return content + block
+
+# ==========================================
+# 发送记录（Supabase emails 表，带 status 并做降级）
+# ==========================================
+def _insert_record(user_email: str, sender_account: str, item: EmailItem, with_status: bool):
+    payload = {
+        "user_email": user_email,
+        "sender_account": sender_account,
+        "recipient": item.to_email,
+        "subject": item.subject,
+        "is_read": False,
+    }
+    if with_status:
+        payload["status"] = "pending"
+    return supabase.table("emails").insert(payload).execute()
+
+def create_send_record(user_email: str, sender_account: str, item: EmailItem) -> Optional[str]:
+    """插入一条 pending 记录并返回 id；若 emails 表还没有 status 列，
+    自动去掉 status 字段重试一次，避免整个发送任务被表结构卡死。"""
+    try:
+        res = _insert_record(user_email, sender_account, item, with_status=True)
+    except Exception as e:
+        print(f"Insert with status failed, retrying without status: {e}")
+        res = _insert_record(user_email, sender_account, item, with_status=False)
+    if res.data:
+        return res.data[0]["id"]
+    return None
+
+def update_record_status(email_id: Optional[str], status: str):
+    if not email_id:
+        return
+    try:
+        supabase.table("emails").update({"status": status}).eq("id", email_id).execute()
+    except Exception as e:
+        # status 列不存在等情况下只记日志，不影响发送本身
+        print(f"Update record status failed for {email_id}: {e}")
+
+# ==========================================
+# SMTP 连接（同账号复用一条连接，断了才重建）
+# ==========================================
+class SmtpConnection:
+    def __init__(self, account: SmtpAccount):
+        self.account = account
+        self.server = None
+
+    def ensure_connected(self):
+        if self.server is not None:
+            return self.server
+        host, port, use_ssl = get_smtp_host_and_port(self.account.email)
+        if use_ssl:
+            server = smtplib.SMTP_SSL(host, port, timeout=30)
+        else:
+            server = smtplib.SMTP(host, port, timeout=30)
+            server.starttls()
+        server.login(self.account.email, self.account.password)
+        self.server = server
+        return server
+
+    def send(self, from_addr: str, to_addr: str, msg_str: str):
+        server = self.ensure_connected()
+        server.sendmail(from_addr, [to_addr], msg_str)
+
+    def close(self):
+        if self.server is not None:
+            try:
+                self.server.quit()
+            except Exception:
+                pass
+            self.server = None
+
+def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], content: Optional[str] = None) -> str:
+    if content is None:
+        content = item.content
+    if email_id:
+        tracking_url = f"{BASE_URL}/track/{email_id}"
+        pixel_html = f'<br><img src="{tracking_url}" width="1" height="1" alt="" style="display:none !important;" />'
+        content = content + pixel_html
+    msg = MIMEMultipart("alternative")
+    msg["From"] = from_addr
+    msg["To"] = item.to_email
+    msg["Subject"] = item.subject
+    msg.attach(MIMEText(content, "html", "utf-8"))
+    return msg.as_string()
+
+def send_one(user_email: str, conn: SmtpConnection, item: EmailItem, *,
+             link_enabled: bool = False, link_url: str = DEFAULT_LINK_URL,
+             link_text: str = DEFAULT_LINK_TEXT):
+    """发送一封：建记录 -> 拼装链接行 -> 组装（含像素）-> 发送（失败自动重试 1 次，重试前重建连接）。
+    返回 (ok: bool, error: Optional[str])
+    注意：变量替换在调用方（前端提交前）完成，这里只做链接行拼装，且只拼装一次；
+    重试时复用同一份组装好的邮件串，不会重复拼装。"""
+    try:
+        email_id = create_send_record(user_email, conn.account.email, item)
+    except Exception as e:
+        return False, f"record_insert_failed: {e}"
+    assembled = assemble_content(item.content, link_enabled=link_enabled,
+                                 link_url=link_url, link_text=link_text)
+    msg_str = build_message(conn.account.email, item, email_id, content=assembled)
+    last_err = None
+    for attempt in range(2):  # 首次 + 重试 1 次
+        try:
+            conn.send(conn.account.email, item.to_email, msg_str)
+            update_record_status(email_id, "sent")
+            return True, None
+        except Exception as err:
+            last_err = err
+            conn.close()  # 下一次尝试会重建连接
+    update_record_status(email_id, "failed")
+    return False, str(last_err)
+
+# ==========================================
+# 每账号每日发送计数（进程内，按 UTC 日期）
+# ==========================================
+_daily_counts: Dict[str, int] = {}
+_daily_lock = threading.Lock()
+
+def _daily_key(account_email: str) -> str:
+    return f"{datetime.now(timezone.utc).date().isoformat()}::{account_email}"
+
+def daily_sent_count(account_email: str) -> int:
+    with _daily_lock:
+        return _daily_counts.get(_daily_key(account_email), 0)
+
+def daily_increment(account_email: str):
+    with _daily_lock:
+        key = _daily_key(account_email)
+        _daily_counts[key] = _daily_counts.get(key, 0) + 1
+
+# ==========================================
+# 批量任务（后台运行，状态存内存字典）
+# ==========================================
+TASKS: Dict[str, dict] = {}
+
+def _public_task(task: dict) -> dict:
+    return {
+        "task_id": task["task_id"],
+        "status": task["status"],
+        "total": task["total"],
+        "sent": task["sent"],
+        "failed": task["failed"],
+        "skipped": task["skipped"],
+        "errors": task["errors"][-20:],
+        "notes": task["notes"],
+        "per_account": task["per_account"],
+        "created_at": task["created_at"],
+        "finished_at": task["finished_at"],
+    }
+
+def run_batch_task(task_id: str, req: BatchTaskRequest):
+    task = TASKS[task_id]
+    task["status"] = "running"
+    conns: Dict[str, SmtpConnection] = {}
+    pointer = 0
+    try:
+        for idx, item in enumerate(req.emails):
+            if task["status"] == "stopped":
+                task["skipped"] += len(req.emails) - idx
+                break
+            while task["status"] == "paused":
+                time.sleep(0.2)
+            if task["status"] == "stopped":
+                task["skipped"] += len(req.emails) - idx
+                break
+
+            # 轮换选账号：从 pointer 开始找第一个未达每日上限的账号
+            chosen = None
+            for offset in range(len(req.accounts)):
+                cand_idx = (pointer + offset) % len(req.accounts)
+                cand = req.accounts[cand_idx]
+                if daily_sent_count(cand.email) < req.daily_cap:
+                    chosen = cand
+                    pointer = cand_idx + 1
+                    break
+            if chosen is None:
+                note = f"所有发信账号均已达到每日上限 {req.daily_cap} 封，剩余 {len(req.emails) - idx} 封跳过"
+                if note not in task["notes"]:
+                    task["notes"].append(note)
+                task["skipped"] += len(req.emails) - idx
+                break
+
+            if chosen.email not in conns:
+                conns[chosen.email] = SmtpConnection(chosen)
+            ok, err = send_one(req.user_email, conns[chosen.email], item,
+                               link_enabled=req.link_enabled, link_url=req.link_url,
+                               link_text=req.link_text)
+            acct_stat = task["per_account"].setdefault(
+                chosen.email, {"sent": 0, "failed": 0})
+            if ok:
+                task["sent"] += 1
+                acct_stat["sent"] += 1
+                daily_increment(chosen.email)
+            else:
+                task["failed"] += 1
+                acct_stat["failed"] += 1
+                task["errors"].append({"to": item.to_email, "account": chosen.email, "error": err})
+
+            if req.interval_seconds and req.interval_seconds > 0:
+                slept = 0.0
+                while slept < req.interval_seconds and task["status"] not in ("stopped",):
+                    time.sleep(min(0.2, req.interval_seconds - slept))
+                    slept += 0.2
+                    while task["status"] == "paused":
+                        time.sleep(0.2)
+    except Exception as e:
+        task["status"] = "failed"
+        task["errors"].append({"to": None, "account": None, "error": f"task_crashed: {e}"})
+    finally:
+        for conn in conns.values():
+            conn.close()
+        if task["status"] == "running":
+            task["status"] = "done"
+        task["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+@app.post("/api/tasks")
+async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundTasks):
+    if not req.accounts:
+        raise HTTPException(status_code=400, detail="至少需要一个发信账号")
+    if not req.emails:
+        raise HTTPException(status_code=400, detail="名单为空")
+    task_id = uuid.uuid4().hex[:12]
+    TASKS[task_id] = {
+        "task_id": task_id,
+        "status": "running",
+        "total": len(req.emails),
+        "sent": 0,
+        "failed": 0,
+        "skipped": 0,
+        "errors": [],
+        "notes": [],
+        "per_account": {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+    }
+    background_tasks.add_task(run_batch_task, task_id, req)
+    return {"success": True, "task_id": task_id, "status": "running", "total": len(req.emails)}
+
+@app.get("/api/tasks/{task_id}")
+async def get_batch_task(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return _public_task(task)
+
+@app.post("/api/tasks/{task_id}/pause")
+async def pause_batch_task(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task["status"] == "running":
+        task["status"] = "paused"
+    return _public_task(task)
+
+@app.post("/api/tasks/{task_id}/resume")
+async def resume_batch_task(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task["status"] == "paused":
+        task["status"] = "running"
+    return _public_task(task)
+
+@app.post("/api/tasks/{task_id}/stop")
+async def stop_batch_task(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task["status"] in ("running", "paused"):
+        task["status"] = "stopped"
+    return _public_task(task)
+
+# ==========================================
+# 页面路由
+# ==========================================
+def _serve_page_file(template_name: str) -> HTMLResponse:
+    """直接按文件内容返回页面，不走 Jinja 渲染。
+    原因：三个模板里没有任何服务端 Jinja 变量，反而正文里有前端自己的
+    {{name}} 占位符和 JS 模板字符串（{{${key}}}），Jinja 编译会直接报错
+    或把 {{name}} 吞掉。原版用 TemplateResponse 在当前依赖版本下打开
+    /outreach 就会 TemplateSyntaxError，这也是顺带修掉的一个存量问题。"""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", template_name)
+    with open(path, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+def _page_with_sender_cookie(template_name: str, request: Request) -> HTMLResponse:
+    resp = _serve_page_file(template_name)
+    resp.set_cookie(
+        SENDER_COOKIE_NAME, "1",
+        max_age=SENDER_COOKIE_MAX_AGE, path="/", samesite="lax",
+    )
+    return resp
+
+@app.get("/", response_class=HTMLResponse)
+async def index_page(request: Request):
+    return _serve_page_file("index.html")
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    return _page_with_sender_cookie("dashboard.html", request)
+
+@app.get("/outreach", response_class=HTMLResponse)
+async def outreach_page(request: Request):
+    return _page_with_sender_cookie("outreach.html", request)
+
+# ==========================================
+# 追踪像素端点
+# ==========================================
+@app.get("/track/{email_id}")
+async def track_email_open(email_id: str, request: Request):
+    # 发件人自己的设备（访问过工作台/大盘、种过标记 Cookie）打开邮件不计已读，
+    # 避免发件人查看往来邮件时把真实未读状态冲成已读。
+    if request.cookies.get(SENDER_COOKIE_NAME) == "1":
+        return _pixel_response()
+    try:
+        supabase.table("emails").update({
+            "is_read": True,
+            "read_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", email_id).execute()
+    except Exception as e:
+        print(f"Tracking error for {email_id}: {e}")
+
+    return _pixel_response()
+
+def _pixel_response() -> Response:
+    return Response(
+        content=TRANSPARENT_1PX_GIF,
+        media_type="image/gif",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
+
+# ==========================================
+# 批量发信 API（旧版单账号同步接口，保留兼容，内部已改为连接复用+记录状态）
+# ==========================================
 @app.post("/api/send_batch")
-async def send_batch(req: BatchSendRequest):
+async def send_batch_emails(req: SendBatchRequest):
+    account = SmtpAccount(email=req.smtp_account, password=req.smtp_password)
+    conn = SmtpConnection(account)
     sent_count = 0
     failed_count = 0
-    errors = []
-
-    # 1. 自动适配主流 SMTP 服务器（Gmail / Outlook / 企业邮箱）
-    sender_domain = req.smtp_account.split("@")[-1].lower()
-    if "gmail.com" in sender_domain:
-        smtp_host = "smtp.gmail.com"
-        smtp_port = 587
-    elif "outlook.com" in sender_domain or "hotmail.com" in sender_domain:
-        smtp_host = "smtp.office365.com"
-        smtp_port = 587
-    elif "163.com" in sender_domain:
-        smtp_host = "smtp.163.com"
-        smtp_port = 465
-    elif "qq.com" in sender_domain:
-        smtp_host = "smtp.qq.com"
-        smtp_port = 465
-    else:
-        smtp_host = f"smtp.{sender_domain}"
-        smtp_port = 587
-
-    # 2. 建立发信长连接
     try:
-        if smtp_port == 465:
-            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
-        else:
-            server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
-            server.starttls()
-        server.login(req.smtp_account, req.smtp_password)
+        conn.ensure_connected()
     except Exception as e:
-        return {"success": False, "message": f"发信邮箱登录失败: {str(e)}"}
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    # 3. 逐封自动植入隐形追踪像素并发送
+        return {"success": False, "message": f"SMTP 认证登录失败: {str(e)}", "sent_count": 0, "failed_count": len(req.emails)}
     for item in req.emails:
-        try:
-            track_id = str(uuid.uuid4())
-            # 植入 1 像素隐形透明图
-            pixel_html = f'<img src="https://mail-tracker-e7da.onrender.com/track/{track_id}" width="1" height="1" style="display:none !important;" />'
-            html_body = f"{item.content}<br><br>{pixel_html}"
-
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = item.subject
-            msg["From"] = req.smtp_account
-            msg["To"] = item.to_email
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
-
-            server.sendmail(req.smtp_account, [item.to_email], msg.as_string())
-
-            # 写入追踪数据库，大盘立刻可见
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cur.execute("""
-                INSERT INTO emails (id, user_email, to_email, subject, send_time, status)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (track_id, req.user_email, item.to_email, item.subject, now_str, "未读"))
-
+        ok, _err = send_one(req.user_email, conn, item,
+                            link_enabled=req.link_enabled, link_url=req.link_url,
+                            link_text=req.link_text)
+        if ok:
             sent_count += 1
-        except Exception as err:
+            daily_increment(req.smtp_account)
+        else:
             failed_count += 1
-            errors.append(f"{item.to_email}: {str(err)}")
-
-    conn.commit()
-    cur.close()
     conn.close()
-    server.quit()
-
     return {
         "success": True,
         "sent_count": sent_count,
         "failed_count": failed_count,
-        "errors": errors
+        "message": f"发送完成：成功 {sent_count} 封，失败 {failed_count} 封"
     }
+
+# ==========================================
+# 邮箱自带模板直读（骨架接口）
+# ------------------------------------------
+# 调研结论（详见改造报告）：
+# - Gmail 没有独立的“模板”数据接口。网页端的操作就叫 “Save draft as template”
+#   （把草稿存为模板，Google 官方帮助原文），Google Apps Script 官方示例也是
+#   从 GmailApp.getDrafts() 里按主题名找模板——即模板在数据层就是草稿箱里的
+#   特殊草稿。因此可行的读取路径只有两条：Gmail API users.drafts.list/get
+#   （需 OAuth），或 IMAP 读 Drafts 文件夹（应用密码）。本骨架实现 IMAP 路径。
+#   注意：IMAP 无法区分“模板草稿”和普通草稿，返回的是 Drafts 全部条目，
+#   调用方需按主题自行认领哪条是模板（与 Apps Script 示例的做法一致）。
+# - Outlook 的 “My Templates” 是加载项（add-in）侧的功能，模板存在创建者
+#   主邮箱里（微软官方文档），没有公开的 Microsoft Graph 模板资源可列取；
+#   且 Outlook.com 个人账号自 2024-09-16 起停用基本认证（密码/授权码），
+#   IMAP/SMTP 必须 OAuth2。因此 Outlook 路径本轮不做密码读取，直接返回
+#   结构化的 oauth_required 错误，等接了 OAuth 再实现。
+# ==========================================
+def _decode_mime_header(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    parts = []
+    for chunk, charset in decode_header(value):
+        if isinstance(chunk, bytes):
+            parts.append(chunk.decode(charset or "utf-8", errors="replace"))
+        else:
+            parts.append(chunk)
+    return "".join(parts)
+
+def _extract_html(msg) -> str:
+    html = ""
+    plain = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if part.get_content_disposition() == "attachment":
+                continue
+            payload = part.get_payload(decode=True)
+            if payload is None:
+                continue
+            text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+            if ctype == "text/html" and not html:
+                html = text
+            elif ctype == "text/plain" and not plain:
+                plain = text
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            text = payload.decode(msg.get_content_charset() or "utf-8", errors="replace")
+            if msg.get_content_type() == "text/html":
+                html = text
+            else:
+                plain = text
+    return html or plain
+
+def _gmail_templates_via_imap(account: str, password: str, limit: int = 30):
+    """用 IMAP（应用密码）读 Gmail Drafts 文件夹，列出主题 + HTML 正文。
+    只读打开（readonly），不修改邮箱里的任何东西。"""
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
+    try:
+        mail.login(account, password)
+        # 找带 \Drafts 标记的文件夹，找不到就退回常见名字
+        drafts_folder = None
+        _typ, listing = mail.list()
+        if listing:
+            for line in listing:
+                if not line:
+                    continue
+                text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line)
+                if "\\Drafts" in text:
+                    # LIST 行格式: (\HasNoChildren \Drafts) "/" "[Gmail]/Drafts"
+                    drafts_folder = text.rsplit(' ', 1)[-1].strip().strip('"')
+                    break
+        for candidate in (drafts_folder, "[Gmail]/Drafts", "Drafts", "INBOX.Drafts"):
+            if not candidate:
+                continue
+            typ, _ = mail.select(f'"{candidate}"', readonly=True)
+            if typ == "OK":
+                drafts_folder = candidate
+                break
+        else:
+            return {"success": False, "provider": "gmail",
+                    "error_type": "drafts_folder_not_found",
+                    "message": "未找到 Drafts 文件夹"}
+        typ, data = mail.search(None, "ALL")
+        if typ != "OK":
+            return {"success": False, "provider": "gmail",
+                    "error_type": "search_failed", "message": "搜索 Drafts 失败"}
+        ids = data[0].split() if data and data[0] else []
+        ids = list(reversed(ids))[:limit]
+        templates = []
+        for mid in ids:
+            typ, fetched = mail.fetch(mid, "(RFC822)")
+            if typ != "OK" or not fetched or not isinstance(fetched[0], tuple):
+                continue
+            msg = message_from_bytes(fetched[0][1])
+            templates.append({
+                "id": mid.decode("ascii", errors="replace"),
+                "subject": _decode_mime_header(msg.get("Subject")),
+                "html": _extract_html(msg),
+            })
+        return {"success": True, "provider": "gmail", "source": "imap_drafts",
+                "folder": drafts_folder, "templates": templates,
+                "note": "IMAP 无法区分模板草稿与普通草稿，返回 Drafts 全部条目，请按主题认领模板"}
+    except imaplib.IMAP4.error as e:
+        return {"success": False, "provider": "gmail",
+                "error_type": "imap_auth_failed",
+                "message": f"IMAP 登录失败（需开启 IMAP 并使用应用专用密码）: {e}"}
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+
+@app.get("/api/mailbox/templates")
+async def mailbox_templates(provider: str, account: str, password: str):
+    """只读骨架：读邮箱里存着的模板（Gmail 走 IMAP 读 Drafts；Outlook 需 OAuth，本轮明确报错）。
+    凭据只用于本次 IMAP 登录，不落库、不写日志。"""
+    provider = provider.strip().lower()
+    if provider == "gmail":
+        return _gmail_templates_via_imap(account, password)
+    if provider in ("outlook", "hotmail", "microsoft"):
+        return {
+            "success": False,
+            "provider": "outlook",
+            "error_type": "oauth_required",
+            "message": ("Outlook.com 个人账号自 2024-09-16 起已停用基本认证，"
+                        "密码/授权码无法登录 IMAP/SMTP；My Templates 也没有公开的 Graph 读取接口。"
+                        "需要先接 Microsoft OAuth2 授权，本接口暂不支持用密码读取 Outlook 模板。"),
+        }
+    return {"success": False, "provider": provider,
+            "error_type": "unsupported_provider",
+            "message": f"暂不支持的服务商: {provider}"}
