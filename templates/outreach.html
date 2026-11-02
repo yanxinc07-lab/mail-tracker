@@ -578,6 +578,16 @@
       insertHtmlAtCursor('<p><img src="/static/kwoov-demo.gif" alt="Kwoov 产品演示动图" style="max-width:100%; border-radius:8px;"></p>');
     }
 
+    function insertSubjectVariable(tok) {
+      const inp = document.getElementById("emailSubject");
+      if (!inp) return;
+      const start = inp.selectionStart ?? inp.value.length;
+      const end = inp.selectionEnd ?? inp.value.length;
+      inp.setRangeText(tok, start, end, "end");
+      inp.focus();
+      updateRealtimePreview();
+    }
+
     function insertVariableToken(tok) {
       insertHtmlAtCursor(tok);
     }
@@ -918,8 +928,11 @@
       </div>
       <div class="form-group">
         <label class="form-label">邮件主题</label>
+        <div class="editor-toolbar">
+          <button type="button" class="editor-tool-btn" onclick="insertSubjectVariable('{{name}}')">👤 在光标处插入变量 {{name}}</button>
+        </div>
         <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属商务合作邀请" autocomplete="off" oninput="updateRealtimePreview()" />
-        <span class="help-hint">说明：主题里可以写 {{name}} 这类变量，发送时会自动换成每位收件人的对应信息（取自你导入表格里同名的那一列，如 name 列就是达人名字）。不写变量就是所有人同一个主题。</span>
+        <span class="help-hint">说明：主题里可以写 {{name}} 这类变量，发送时会自动换成每位收件人的对应信息（取自你导入表格里同名的那一列，如 name 列就是达人名字）。不写变量就是所有人同一个主题。注意格式：必须是双大括号 {{name}} 系统才认；写成 [Creator Name] 这种方括号只是普通文字，不会替换（那是以前在 Gmail 里给自己看的标记）。</span>
       </div>
       <div class="form-group">
         <label class="form-label">邮件正文（所见即所得，可直接粘贴带格式的内容）</label>
