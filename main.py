@@ -32,7 +32,11 @@ import io
 # ==========================================
 # 环境变量与配置（已脱敏）
 # ==========================================
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://YOUR_SUPABASE_PROJECT_ID.supabase.co")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+if not SUPABASE_URL or "YOUR_SUPABASE" in SUPABASE_URL:
+    # Render 环境变量里若还是 Gemini 留下的占位地址，用项目真实地址兜底
+    # （该地址是公开信息，前端页面里同样嵌着它）
+    SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co"
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "YOUR_SUPABASE_SERVICE_ROLE_KEY")
 BASE_URL = os.getenv("BASE_URL", "https://YOUR_APP_NAME.onrender.com")
 
@@ -671,26 +675,6 @@ class AccountIn(BaseModel):
 @app.get("/api/version")
 async def api_version():
     return {"v": "v5-fix3-jwks-noapikey"}
-
-
-@app.get("/api/diag")
-async def api_diag():
-    """临时诊断：只报告配置形状与连通性，不含任何密钥值。定位完即删。"""
-    from urllib.parse import urlparse
-    host = urlparse(SUPABASE_URL).netloc
-    out = {"supabase_host": host, "service_key_len": len(SUPABASE_SERVICE_ROLE_KEY or "")}
-    try:
-        req = urllib.request.Request(f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json")
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            out["jwks"] = f"http {resp.status}"
-    except Exception as e:
-        out["jwks"] = f"ERR {type(e).__name__}: {e}"
-    try:
-        supabase.table("emails").select("id").limit(1).execute()
-        out["db"] = "ok"
-    except Exception as e:
-        out["db"] = f"ERR {type(e).__name__}: {str(e)[:160]}"
-    return out
 
 
 @app.get("/api/accounts")
