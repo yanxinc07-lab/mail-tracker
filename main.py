@@ -112,9 +112,9 @@ def _verify_user_id(authorization: Optional[str]) -> str:
             last_err = None
             for _attempt in range(3):  # 公钥拉取偶发连接重置时重试，成功后缓存 1 小时
                 try:
+                    # JWKS 是公开端点，不带任何密钥头，避免服务器密钥配置干扰验签
                     req = urllib.request.Request(
-                        f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json",
-                        headers={"apikey": SUPABASE_SERVICE_ROLE_KEY})
+                        f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json")
                     with urllib.request.urlopen(req, timeout=15) as resp:
                         _JWKS_CACHE["keys"] = json.loads(resp.read().decode("utf-8"))["keys"]
                     _JWKS_CACHE["fetched_at"] = now
@@ -666,6 +666,11 @@ async def stop_batch_task(task_id: str, authorization: Optional[str] = Header(de
 class AccountIn(BaseModel):
     email: str
     password: str
+
+
+@app.get("/api/version")
+async def api_version():
+    return {"v": "v5-fix3-jwks-noapikey"}
 
 
 @app.get("/api/accounts")
