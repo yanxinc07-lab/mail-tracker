@@ -6,6 +6,8 @@ import uuid
 import imaplib
 import smtplib
 import urllib.request
+import hashlib
+import base64
 import threading
 from email import message_from_bytes
 from email.header import decode_header
@@ -14,12 +16,13 @@ from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
-from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from supabase import create_client, Client
+from cryptography.fernet import Fernet
 import io
 
 # ==========================================
@@ -30,20 +33,6 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "YOUR_SUPABAS
 BASE_URL = os.getenv("BASE_URL", "https://YOUR_APP_NAME.onrender.com")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-app = FastAPI(title="MailTracker Batch Outreach Engine")
-
-# 挂载静态目录与模板
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-# 1x1 像素透明 GIF 字节流
-TRANSPARENT_1PX_GIF = (
-    b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff"
-    b"\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00"
-    b"\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
-)
 
 # 发件人设备标记 Cookie 名：访问工作台/大盘时种下，/track 见到它就不记已读
 SENDER_COOKIE_NAME = "is_sender_device"
@@ -65,7 +54,8 @@ class EmailItem(BaseModel):
     content: str
 
 class SendBatchRequest(BaseModel):
-    user_email: str
+    user_email: str = ""
+    user_id: str = ""
     smtp_account: str
     smtp_password: str
     emails: List[EmailItem]
@@ -79,7 +69,8 @@ class SmtpAccount(BaseModel):
     password: str
 
 class BatchTaskRequest(BaseModel):
-    user_email: str
+    user_email: str = ""
+    user_id: str = ""
     accounts: List[SmtpAccount]
     emails: List[EmailItem]
     daily_cap: int = 50
@@ -88,6 +79,87 @@ class BatchTaskRequest(BaseModel):
     link_enabled: bool = False
     link_url: str = DEFAULT_LINK_URL
     link_text: str = DEFAULT_LINK_TEXT
+
+# ==========================================
+# 登录校验与发信账号（云端加密存储）
+# ==========================================
+def _verify_user_id(authorization: Optional[str]) -> str:
+    """校验前端带来的 Supabase 登录令牌，返回用户 uuid；无效抛 401。
+    user_id 一律以令牌为准，不信任请求体里自报的身份。"""
+    if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="未登录")
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        res = supabase.auth.get_user(token)
+        if res and res.user and res.user.id:
+            return res.user.id
+    except Exception as e:
+        print(f"auth verify failed: {e}")
+    raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+
+
+def _fernet() -> Fernet:
+    # 加密密钥由服务器已有的 service role 密钥派生：数据库单独泄露时，
+    # 没有服务器环境里的这把钥匙就解不出授权码。轮换 service key 需同步迁移账号。
+    key = base64.urlsafe_b64encode(
+        hashlib.sha256(SUPABASE_SERVICE_ROLE_KEY.encode()).digest())
+    return Fernet(key)
+
+
+def _encrypt_pass(plain: str) -> str:
+    return _fernet().encrypt(plain.encode()).decode()
+
+
+def _decrypt_pass(enc: str) -> str:
+    return _fernet().decrypt(enc.encode()).decode()
+
+
+def _load_user_accounts(user_id: str) -> List[SmtpAccount]:
+    """从云端读该用户的发信账号并解密（仅后端内部使用）。"""
+    try:
+        rows = supabase.table("sender_accounts").select("email, pass_enc") \
+            .eq("user_id", user_id).order("created_at").execute().data or []
+    except Exception as e:
+        print(f"load accounts failed: {e}")
+        return []
+    accounts = []
+    for r in rows:
+        try:
+            accounts.append(SmtpAccount(**{"email": r["email"], "password": _decrypt_pass(r["pass_enc"])}))
+        except Exception as e:
+            print(f"decrypt account failed for {r.get('email')}: {e}")
+    return accounts
+
+
+def _sync_task_db(task: dict):
+    """把内存任务的进度同步到 send_tasks 表（尽力而为，失败只记日志）。"""
+    try:
+        supabase.table("send_tasks").update({
+            "status": task["status"],
+            "sent": task["sent"],
+            "failed": task["failed"],
+            "skipped": task["skipped"],
+            "finished_at": task["finished_at"],
+            "notes": "\n".join(task["notes"]),
+        }).eq("id", task["id"]).execute()
+    except Exception as e:
+        print(f"sync task db failed: {e}")
+
+app = FastAPI(title="MailTracker Batch Outreach Engine")
+
+# 挂载静态目录与模板
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# 1x1 像素透明 GIF 字节流
+TRANSPARENT_1PX_GIF = (
+    b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff"
+    b"\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00"
+    b"\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
+)
+
+
 
 # ==========================================
 # SMTP 服务分发工具函数
@@ -179,29 +251,32 @@ def assemble_content(html: str, *, link_enabled: bool, link_url: str, link_text:
 # ==========================================
 # 发送记录（Supabase emails 表，带 status 并做降级）
 # ==========================================
-def _insert_record(user_email: str, sender_account: str, item: EmailItem, with_status: bool):
+def _insert_record(user_id: str, item: EmailItem):
+    """按线上 emails 表结构写记录：id 由后端生成（text 主键、无默认值），
+    user_id 为登录用户 uuid，send_time 存 ISO 文本，open_count 默认 0。"""
     payload = {
-        "user_email": user_email,
-        "sender_account": sender_account,
+        "id": str(uuid.uuid4()),
+        "user_id": user_id or None,
         "recipient": item.to_email,
         "subject": item.subject,
-        "is_read": False,
+        "send_time": datetime.now(timezone.utc).isoformat(),
+        "status": "pending",
+        "open_count": 0,
     }
-    if with_status:
-        payload["status"] = "pending"
     return supabase.table("emails").insert(payload).execute()
 
-def create_send_record(user_email: str, sender_account: str, item: EmailItem) -> Optional[str]:
-    """插入一条 pending 记录并返回 id；若 emails 表还没有 status 列，
-    自动去掉 status 字段重试一次，避免整个发送任务被表结构卡死。"""
+
+def create_send_record(user_id: str, item: EmailItem) -> Optional[str]:
+    """插入一条 pending 记录并返回 id；失败返回 None（调用方据此判定发送失败）。"""
     try:
-        res = _insert_record(user_email, sender_account, item, with_status=True)
+        res = _insert_record(user_id, item)
     except Exception as e:
-        print(f"Insert with status failed, retrying without status: {e}")
-        res = _insert_record(user_email, sender_account, item, with_status=False)
+        print(f"Insert send record failed: {e}")
+        return None
     if res.data:
         return res.data[0]["id"]
     return None
+
 
 def update_record_status(email_id: Optional[str], status: str):
     if not email_id:
@@ -324,17 +399,16 @@ def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], cont
     return msg.as_string()
 
 
-def send_one(user_email: str, conn: SmtpConnection, item: EmailItem, *,
+def send_one(user_id: str, conn: SmtpConnection, item: EmailItem, *,
              link_enabled: bool = False, link_url: str = DEFAULT_LINK_URL,
              link_text: str = DEFAULT_LINK_TEXT):
     """发送一封：建记录 -> 拼装链接行 -> 组装（含像素）-> 发送（失败自动重试 1 次，重试前重建连接）。
     返回 (ok: bool, error: Optional[str])
     注意：变量替换在调用方（前端提交前）完成，这里只做链接行拼装，且只拼装一次；
     重试时复用同一份组装好的邮件串，不会重复拼装。"""
-    try:
-        email_id = create_send_record(user_email, conn.account.email, item)
-    except Exception as e:
-        return False, f"record_insert_failed: {e}"
+    email_id = create_send_record(user_id, item)
+    if not email_id:
+        return False, "record_insert_failed"
     assembled = assemble_content(item.content, link_enabled=link_enabled,
                                  link_url=link_url, link_text=link_text)
     msg_str = build_message(conn.account.email, item, email_id, content=assembled)
@@ -436,6 +510,8 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
                 acct_stat["failed"] += 1
                 task["errors"].append({"to": item.to_email, "account": chosen.email, "error": err})
 
+            if (idx + 1) % 10 == 0:
+                _sync_task_db(task)
             if req.interval_seconds and req.interval_seconds > 0:
                 slept = 0.0
                 while slept < req.interval_seconds and task["status"] not in ("stopped",):
@@ -452,18 +528,26 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
         if task["status"] == "running":
             task["status"] = "done"
         task["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _sync_task_db(task)
 
 @app.post("/api/tasks")
-async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundTasks):
-    if not req.accounts:
-        raise HTTPException(status_code=400, detail="至少需要一个发信账号")
+async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundTasks,
+                            authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
     if not req.emails:
         raise HTTPException(status_code=400, detail="名单为空")
     if len(req.emails) > MAX_EMAILS_PER_TASK:
         raise HTTPException(status_code=400, detail=f"单批最多 {MAX_EMAILS_PER_TASK} 位收件人，请删减名单后重试")
+    accounts = _load_user_accounts(user_id)
+    if not accounts:
+        raise HTTPException(status_code=400, detail="还没有发信账号，请先在账号区添加（云端保存）")
+    req.user_id = user_id
+    req.accounts = accounts
     task_id = uuid.uuid4().hex[:12]
     TASKS[task_id] = {
+        "id": task_id,
         "task_id": task_id,
+        "user_id": user_id,
         "status": "running",
         "total": len(req.emails),
         "sent": 0,
@@ -475,42 +559,99 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
         "created_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
     }
+    try:
+        supabase.table("send_tasks").insert({
+            "id": task_id,
+            "user_id": user_id,
+            "status": "running",
+            "total": len(req.emails),
+            "sent": 0, "failed": 0, "skipped": 0,
+            "accounts": ",".join(a.email for a in accounts),
+            "subject": req.emails[0].subject if req.emails else "",
+            "created_at": TASKS[task_id]["created_at"],
+            "notes": "",
+        }).execute()
+    except Exception as e:
+        print(f"insert send_tasks failed: {e}")
     background_tasks.add_task(run_batch_task, task_id, req)
     return {"success": True, "task_id": task_id, "status": "running", "total": len(req.emails)}
 
-@app.get("/api/tasks/{task_id}")
-async def get_batch_task(task_id: str):
+def _owned_task(task_id: str, authorization: Optional[str]) -> dict:
+    user_id = _verify_user_id(authorization)
     task = TASKS.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    return _public_task(task)
+    if task.get("user_id") and task["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
+    return _public_task(_owned_task(task_id, authorization))
 
 @app.post("/api/tasks/{task_id}/pause")
-async def pause_batch_task(task_id: str):
-    task = TASKS.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+async def pause_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
+    task = _owned_task(task_id, authorization)
     if task["status"] == "running":
         task["status"] = "paused"
+        _sync_task_db(task)
     return _public_task(task)
 
 @app.post("/api/tasks/{task_id}/resume")
-async def resume_batch_task(task_id: str):
-    task = TASKS.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+async def resume_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
+    task = _owned_task(task_id, authorization)
     if task["status"] == "paused":
         task["status"] = "running"
+        _sync_task_db(task)
     return _public_task(task)
 
 @app.post("/api/tasks/{task_id}/stop")
-async def stop_batch_task(task_id: str):
-    task = TASKS.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+async def stop_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
+    task = _owned_task(task_id, authorization)
     if task["status"] in ("running", "paused"):
         task["status"] = "stopped"
     return _public_task(task)
+
+# ==========================================
+# 发信账号接口（云端保存，授权码加密；前端永远看不到明文）
+# ==========================================
+class AccountIn(BaseModel):
+    email: str
+    password: str
+
+
+@app.get("/api/accounts")
+async def list_accounts(authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    rows = supabase.table("sender_accounts").select("id, email, created_at") \
+        .eq("user_id", user_id).order("created_at").execute().data or []
+    return {"accounts": rows}
+
+
+@app.post("/api/accounts")
+async def add_account(body: AccountIn, authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    email = body.email.strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="邮箱格式不对")
+    if not body.password.strip():
+        raise HTTPException(status_code=400, detail="授权码不能为空")
+    supabase.table("sender_accounts").upsert({
+        "user_id": user_id,
+        "email": email,
+        "pass_enc": _encrypt_pass(body.password.strip()),
+    }, on_conflict="user_id,email").execute()
+    return {"success": True}
+
+
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(account_id: str, authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    supabase.table("sender_accounts").delete() \
+        .eq("id", account_id).eq("user_id", user_id).execute()
+    return {"success": True}
+
 
 # ==========================================
 # 页面路由
@@ -555,10 +696,13 @@ async def track_email_open(email_id: str, request: Request):
     if request.cookies.get(SENDER_COOKIE_NAME) == "1":
         return _pixel_response()
     try:
-        supabase.table("emails").update({
-            "is_read": True,
-            "read_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", email_id).execute()
+        rows = supabase.table("emails").select("open_count, first_open_time") \
+            .eq("id", email_id).execute().data or []
+        if rows:
+            patch = {"open_count": (rows[0].get("open_count") or 0) + 1}
+            if not rows[0].get("first_open_time"):
+                patch["first_open_time"] = datetime.now(timezone.utc).isoformat()
+            supabase.table("emails").update(patch).eq("id", email_id).execute()
     except Exception as e:
         print(f"Tracking error for {email_id}: {e}")
 
@@ -579,7 +723,9 @@ def _pixel_response() -> Response:
 # 批量发信 API（旧版单账号同步接口，保留兼容，内部已改为连接复用+记录状态）
 # ==========================================
 @app.post("/api/send_batch")
-async def send_batch_emails(req: SendBatchRequest):
+async def send_batch_emails(req: SendBatchRequest,
+                            authorization: Optional[str] = Header(default=None)):
+    req.user_id = _verify_user_id(authorization)
     if len(req.emails) > MAX_EMAILS_PER_TASK:
         raise HTTPException(status_code=400, detail=f"单批最多 {MAX_EMAILS_PER_TASK} 位收件人，请删减名单后重试")
     account = SmtpAccount(email=req.smtp_account, password=req.smtp_password)
@@ -591,7 +737,7 @@ async def send_batch_emails(req: SendBatchRequest):
     except Exception as e:
         return {"success": False, "message": f"SMTP 认证登录失败: {str(e)}", "sent_count": 0, "failed_count": len(req.emails)}
     for item in req.emails:
-        ok, _err = send_one(req.user_email, conn, item,
+        ok, _err = send_one(req.user_id, conn, item,
                             link_enabled=req.link_enabled, link_url=req.link_url,
                             link_text=req.link_text)
         if ok:
