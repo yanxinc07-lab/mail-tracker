@@ -5,10 +5,12 @@ import time
 import uuid
 import imaplib
 import smtplib
+import urllib.request
 import threading
 from email import message_from_bytes
 from email.header import decode_header
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -242,19 +244,84 @@ class SmtpConnection:
                 pass
             self.server = None
 
+_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=)(["\'])([^"\']+)\2', re.IGNORECASE)
+_LOCAL_GIF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "kwoov-demo.gif")
+
+
+def _fetch_image_bytes(src: str):
+    """取图片字节：站内产品 GIF 用服务器本地原图；其他 http(s) 图片尝试下载（限时限量）；失败返回 (None, None)。"""
+    if "kwoov-demo.gif" in src and os.path.exists(_LOCAL_GIF_PATH):
+        try:
+            with open(_LOCAL_GIF_PATH, "rb") as f:
+                return f.read(), "gif"
+        except Exception:
+            pass
+    if src.startswith("http://") or src.startswith("https://"):
+        try:
+            req = urllib.request.Request(src, headers={"User-Agent": "MailTracker/1.0"})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                ctype = r.headers.get_content_type() or ""
+                if not ctype.startswith("image/"):
+                    return None, None
+                data = r.read(5 * 1024 * 1024 + 1)
+                if len(data) > 5 * 1024 * 1024:
+                    return None, None
+                return data, ctype.split("/")[-1].lower()
+        except Exception:
+            return None, None
+    return None, None
+
+
+def inline_images(html_content: str):
+    """把正文里的图片改成本封邮件的内嵌附件（cid:），返回 (新正文, [(cid, bytes, subtype)])。
+    追踪像素不在此处理（它必须保持外链才能计数）——调用顺序上像素在内嵌之后才拼接。"""
+    images = []
+    cid_map: Dict[str, str] = {}
+
+    def repl(m):
+        prefix, quote, src = m.group(1), m.group(2), m.group(3)
+        if src.startswith("cid:") or src.startswith("data:"):
+            return m.group(0)
+        if src in cid_map:
+            return f"{prefix}{quote}cid:{cid_map[src]}{quote}"
+        data, subtype = _fetch_image_bytes(src)
+        if not data:
+            return m.group(0)
+        cid = f"img{len(images)}-{uuid.uuid4().hex[:10]}@mailtracker"
+        cid_map[src] = cid
+        images.append((cid, data, subtype or "png"))
+        return f"{prefix}{quote}cid:{cid}{quote}"
+
+    return _IMG_SRC_RE.sub(repl, html_content), images
+
+
 def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], content: Optional[str] = None) -> str:
     if content is None:
         content = item.content
+    # 先内嵌正文图片，再拼追踪像素（像素必须保持远程地址）
+    content, images = inline_images(content)
     if email_id:
         tracking_url = f"{BASE_URL}/track/{email_id}"
         pixel_html = f'<br><img src="{tracking_url}" width="1" height="1" alt="" style="display:none !important;" />'
         content = content + pixel_html
-    msg = MIMEMultipart("alternative")
+    if images:
+        msg = MIMEMultipart("related")
+    else:
+        msg = MIMEMultipart("alternative")
     msg["From"] = from_addr
     msg["To"] = item.to_email
     msg["Subject"] = item.subject
     msg.attach(MIMEText(content, "html", "utf-8"))
+    for cid, data, subtype in images:
+        if subtype in ("gif", "jpeg", "jpg", "png", "webp"):
+            part = MIMEImage(data, _subtype="jpeg" if subtype == "jpg" else subtype)
+        else:
+            part = MIMEImage(data)
+        part.add_header("Content-ID", f"<{cid}>")
+        part.add_header("Content-Disposition", "inline")
+        msg.attach(part)
     return msg.as_string()
+
 
 def send_one(user_email: str, conn: SmtpConnection, item: EmailItem, *,
              link_enabled: bool = False, link_url: str = DEFAULT_LINK_URL,

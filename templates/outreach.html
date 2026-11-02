@@ -137,6 +137,12 @@
       background: #FFFFFF;
     }
     .form-textarea { resize: vertical; min-height: 130px; font-family: inherit; line-height: 1.6; }
+    .rich-editor { resize: vertical; min-height: 180px; max-height: 520px; overflow-y: auto; font-family: inherit; line-height: 1.6; background: #fff; cursor: text; }
+    .rich-editor:empty::before { content: attr(data-placeholder); color: #9db3a8; pointer-events: none; }
+    .rich-editor img { max-width: 100%; border-radius: 8px; }
+    .editor-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .editor-tool-btn { height: 30px; padding: 0 12px; font-size: 12px; border-radius: 8px; border: 1px solid rgba(36,51,44,0.18); background: #F4F8F5; color: #33473C; cursor: pointer; }
+    .editor-tool-btn:hover { background: #E6F0E9; }
 
     .dropzone {
       border: 2px dashed rgba(45, 106, 79, 0.3);
@@ -334,6 +340,7 @@
       currentUser = session.user;
       loadSavedAccounts();
       setupDragAndDrop();
+      setupRichEditor();
       loadCopywritingList();
     }
 
@@ -522,12 +529,81 @@
       return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
+    // ---------- 所见即所得正文编辑器 ----------
+    let savedEditorRange = null;
+
+    function syncBodyFromEditor() {
+      const ed = document.getElementById("emailBodyEditor");
+      const hidden = document.getElementById("emailBody");
+      if (ed && hidden) hidden.value = ed.innerHTML;
+    }
+
+    function setBodyContent(html) {
+      const ed = document.getElementById("emailBodyEditor");
+      if (ed) ed.innerHTML = html || "";
+      syncBodyFromEditor();
+    }
+
+    function rememberEditorRange() {
+      const ed = document.getElementById("emailBodyEditor");
+      const sel = window.getSelection();
+      if (ed && sel.rangeCount && ed.contains(sel.anchorNode)) {
+        savedEditorRange = sel.getRangeAt(0).cloneRange();
+      }
+    }
+
+    function insertHtmlAtCursor(html) {
+      const ed = document.getElementById("emailBodyEditor");
+      if (!ed) return;
+      ed.focus();
+      const sel = window.getSelection();
+      let range = null;
+      if (sel.rangeCount && ed.contains(sel.anchorNode)) range = sel.getRangeAt(0);
+      else if (savedEditorRange) { sel.removeAllRanges(); sel.addRange(savedEditorRange); range = savedEditorRange; }
+      if (range) {
+        range.deleteContents();
+        const frag = range.createContextualFragment(html);
+        const lastNode = frag.lastChild;
+        range.insertNode(frag);
+        if (lastNode) { range.setStartAfter(lastNode); range.collapse(true); sel.removeAllRanges(); sel.addRange(range); }
+      } else {
+        ed.insertAdjacentHTML("beforeend", html);
+      }
+      rememberEditorRange();
+      syncBodyFromEditor();
+      updateRealtimePreview();
+    }
+
+    function insertProductGif() {
+      insertHtmlAtCursor('<p><img src="/static/kwoov-demo.gif" alt="Kwoov 产品演示动图" style="max-width:100%; border-radius:8px;"></p>');
+    }
+
+    function insertVariableToken(tok) {
+      insertHtmlAtCursor(tok);
+    }
+
+    function setupRichEditor() {
+      const ed = document.getElementById("emailBodyEditor");
+      if (!ed) return;
+      ed.addEventListener("input", () => { syncBodyFromEditor(); rememberEditorRange(); updateRealtimePreview(); });
+      ed.addEventListener("keyup", rememberEditorRange);
+      ed.addEventListener("mouseup", rememberEditorRange);
+      ed.addEventListener("paste", () => setTimeout(() => { syncBodyFromEditor(); updateRealtimePreview(); }, 0));
+    }
+
     // 链接行改由编辑区“插入到正文”按钮直接写进正文文本，预览即正文原文，不再做发送前拼装。
     function assembleLinkForPreview(content) {
       return content;
     }
 
-    // 把商品链接行插入到正文光标处：所见即所发。
+    // 把商品链接行插入到正文光标处：插入的是渲染好的蓝色链接文字，所见即所发。
+    function insertProductLink() {
+      const url = (document.getElementById("linkUrlInput")?.value || "").trim();
+      const text = document.getElementById("linkTextInput")?.value || "";
+      if (!/^https?:\/\//i.test(url)) { alert("链接地址需以 http:// 或 https:// 开头"); return; }
+      insertHtmlAtCursor(`<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>`);
+    }
+
     function insertProductLink() {
       const ta = document.getElementById("emailBody");
       const url = (document.getElementById("linkUrlInput")?.value || "").trim();
@@ -578,13 +654,14 @@
       const c = copywritings.find(x => x.id === sel.value);
       if (!c) return;
       document.getElementById("emailSubject").value = c.subject || "";
-      document.getElementById("emailBody").value = c.body || "";
+      setBodyContent(c.body || "");
       document.getElementById("cwName").value = c.name || "";
       document.getElementById("cwStatus").innerText = "已载入《" + c.name + "》，改完记得再点保存。";
       updateRealtimePreview();
     }
 
     async function saveCopywriting() {
+      syncBodyFromEditor();
       const st = document.getElementById("cwStatus");
       const name = document.getElementById("cwName").value.trim();
       if (!name) { alert("先给这份文案起个名字（比如：Kwoov 家居版）"); return; }
@@ -842,14 +919,17 @@
       <div class="form-group">
         <label class="form-label">邮件主题</label>
         <input type="text" id="emailSubject" class="form-input" placeholder="例如：Hey {{name}}, 专属商务合作邀请" autocomplete="off" oninput="updateRealtimePreview()" />
+        <span class="help-hint">说明：主题里可以写 {{name}} 这类变量，发送时会自动换成每位收件人的对应信息（取自你导入表格里同名的那一列，如 name 列就是达人名字）。不写变量就是所有人同一个主题。</span>
       </div>
       <div class="form-group">
-        <label class="form-label">邮件正文（支持 HTML 与个性化变量）</label>
-        <textarea id="emailBody" class="form-textarea" placeholder="Hi {{name}},
-
-注意到你在相关领域的精彩分享，我们非常期待与你合作！
-..." autocomplete="off" oninput="updateRealtimePreview()"></textarea>
-        <span class="help-hint">可在正文中使用大括号包裹表格中的表头名（如 {{name}}），系统会自动为每位收件人个性化替换。想加商品链接行：先把光标点到正文里想放的位置，再点下方“插入到正文”，链接行会直接写进正文，</span>
+        <label class="form-label">邮件正文（所见即所得，可直接粘贴带格式的内容）</label>
+        <div class="editor-toolbar">
+          <button type="button" class="editor-tool-btn" onclick="insertProductGif()">🎬 插入产品 GIF</button>
+          <button type="button" class="editor-tool-btn" onclick="insertVariableToken('{{name}}')">👤 插入变量 {{name}}</button>
+        </div>
+        <div id="emailBodyEditor" class="form-textarea rich-editor" contenteditable="true" data-placeholder="Hi {{name}}，&#10;&#10;注意到你在相关领域的精彩分享，我们非常期待与你合作！&#10;..."></div>
+        <textarea id="emailBody" style="display:none;"></textarea>
+        <span class="help-hint">说明：这个框里看到的样子就是收件人看到的样子。直接打字、或从别处粘贴都会保留段落和格式；产品 GIF 点上方按钮插入（发送时系统会把 GIF 作为内嵌附件随信发走，不是外链图，和在 Gmail 里发的效果一样）；{{name}} 这类变量发送时按每位收件人自动替换；想放商品链接，先把光标点到正文里要放的位置，再点下方“插入到正文”。</span>
       </div>
       <div class="form-group" style="border-top:1px dashed rgba(36,51,44,0.12); padding-top:14px;">
         <label class="form-label">🔗 商品链接行（插入到正文光标处）</label>
@@ -864,6 +944,7 @@
           </div>
           <button type="button" class="btn-add-account" style="height:38px; padding:0 16px;" onclick="insertProductLink()">插入到正文</button>
         </div>
+        <span class="help-hint">说明：插入后，正文里会出现一行蓝色可点击的链接文字（就是收件人看到的样子，不是一串代码）。想换位置：先删掉正文里那行，再把光标挪到新位置重新插入。</span>
       </div>
 
       <div id="previewBox" class="preview-box">
