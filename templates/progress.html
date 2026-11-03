@@ -347,7 +347,7 @@
       setInterval(loadTaskList, 5000);
     }
 
-    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已停止", failed: "❌ 失败", interrupted: "⚠️ 已中断", continued: "↪️ 已续发" };
+    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已终止", failed: "❌ 失败", interrupted: "⚠️ 已中断", continued: "↪️ 已续发" };
 
     async function loadTaskList() {
       const tbody = document.getElementById("taskListBody");
@@ -368,7 +368,7 @@
           statusCell += `<div style="margin-top:5px; background:#E7EEE9; border-radius:6px; height:8px; width:110px; overflow:hidden;"><div style="height:100%; width:${pct}%; background:#2D6A4F;"></div></div><div style="font-size:11px; color:#5E7267; margin-top:3px;">已处理 ${doneN}/${t.total} · ${pct}%</div>`;
         }
         let acts = `<button type="button" class="task-act-btn" onclick="event.stopPropagation(); openTaskDetail('${t.id}')">明细</button>`;
-        if (["interrupted", "failed", "stopped", "done"].includes(t.status)) {
+        if (["interrupted", "failed", "stopped"].includes(t.status)) {
           acts += ` <button type="button" class="task-act-btn" onclick="event.stopPropagation(); continueTask('${t.id}')">继续发送</button>`;
         }
         if (["running", "paused", "interrupted", "failed"].includes(t.status)) {
@@ -429,7 +429,6 @@
           tdRecipients = data.recipients.map(r => r.email);
           tdExpanded = false;
           html += '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">'
-            + '<input type="text" id="tdSearch" placeholder="🔍 输入邮箱关键词找人" style="flex:1; min-width:160px; border:1.5px solid #CFE0D5; border-radius:9px; padding:6px 10px; font-size:13px;" oninput="renderTdList()" />'
             + '<button type="button" class="task-act-btn" onclick="copyTdList()">📋 复制名单</button></div>';
           html += '<div id="tdSummary" style="font-size:12px; color:#5E7267; margin-bottom:8px;"></div>';
           html += '<div id="tdList"></div>';
@@ -449,8 +448,7 @@
       const box = document.getElementById("tdList");
       const sum = document.getElementById("tdSummary");
       if (!box) return;
-      const kw = (document.getElementById("tdSearch")?.value || "").trim().toLowerCase();
-      const filtered = kw ? tdRecipients.filter(e => e.toLowerCase().includes(kw)) : tdRecipients;
+      const filtered = tdRecipients;
       const shown = tdExpanded ? filtered : filtered.slice(0, TD_PAGE);
       let html = '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
       shown.forEach(e => {
@@ -461,7 +459,7 @@
         html += `<button type="button" class="task-act-btn" style="margin-top:10px;" onclick="tdExpanded = true; renderTdList();">显示全部（共 ${filtered.length} 位）</button>`;
       }
       box.innerHTML = html;
-      if (sum) sum.innerText = "这一批共 " + tdRecipients.length + " 位收件人" + (kw ? "，搜到 " + filtered.length + " 位" : "") + (shown.length < filtered.length ? "，先显示前 " + shown.length + " 位" : "");
+      if (sum) sum.innerText = "这一批共 " + tdRecipients.length + " 位收件人" + (shown.length < filtered.length ? "，先显示前 " + shown.length + " 位" : "");
     }
 
     function copyTdList() {
@@ -502,6 +500,35 @@
       } catch (e) { alert("终止失败：" + e); }
     }
 
+    const SEND_STATUS_LABEL = { sent: "✅ 已发送", failed: "❌ 发送失败", pending: "❔ 状态不明" };
+
+    async function searchRecipient() {
+      const q = (document.getElementById("recipientSearch")?.value || "").trim();
+      const box = document.getElementById("recipientSearchResult");
+      if (q.length < 2) { box.innerHTML = '<div style="color:#C62828; font-size:13px;">至少输入 2 个字符再搜。</div>'; return; }
+      box.innerHTML = '<div style="color:#78909C; font-size:13px;">搜索中…</div>';
+      try {
+        const resp = await fetch("/api/tasks/search-recipient?q=" + encodeURIComponent(q), { headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { box.innerHTML = '<div style="color:#C62828; font-size:13px;">' + (data.detail || "搜索失败") + '</div>'; return; }
+        if (!data.matches || data.matches.length === 0) {
+          box.innerHTML = '<div style="color:#78909C; font-size:13px;">没有给包含“' + q + '”的邮箱发过。</div>';
+          return;
+        }
+        let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr style="text-align:left; color:#546E7A;"><th style="padding:5px;">收件人</th><th style="padding:5px;">在哪一批</th><th style="padding:5px;">发送时间</th><th style="padding:5px;">状态</th><th style="padding:5px;">打开</th></tr></thead><tbody>';
+        data.matches.forEach(m => {
+          const taskCell = m.task_id
+            ? `<a href="javascript:void(0)" style="color:#2D6A4F; font-weight:700;" onclick="openTaskDetail('${m.task_id}')">${m.task_subject || "(无标题)"}</a><div style="font-size:11px; color:#7A8B81;">${m.task_created_at ? new Date(m.task_created_at).toLocaleString() : ""}${m.legacy ? " · 旧任务按时间匹配" : ""}</div>`
+            : '<span style="color:#78909C;">单封发送（不在批次里）</span>';
+          html += `<tr style="border-top:1px solid #EEF3F0;"><td style="padding:5px;">${m.recipient}</td><td style="padding:5px;">${taskCell}</td><td style="padding:5px;">${m.send_time ? new Date(m.send_time).toLocaleString() : "-"}</td><td style="padding:5px;">${SEND_STATUS_LABEL[m.status] || m.status}</td><td style="padding:5px;">${m.open_count > 0 ? "👀 ×" + m.open_count : "-"}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        box.innerHTML = html;
+      } catch (e) {
+        box.innerHTML = '<div style="color:#C62828; font-size:13px;">搜索失败：' + e + '</div>';
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', initAuth);
   </script>
 </head>
@@ -520,6 +547,16 @@
     <div class="sub-nav">
       <a href="/outreach" class="sub-tab">✉️ 写信发送</a>
       <a href="/progress" class="sub-tab active">📋 发送进度</a>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span>🔍 按邮箱找任务</span></div>
+      <span class="help-hint">想不起给某个人发过没有、在哪一批发的，在这里输邮箱搜一下就知道。</span>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+        <input type="text" id="recipientSearch" placeholder="输入收件人邮箱（或一部分）" style="flex:1; min-width:200px; border:1.5px solid #CFE0D5; border-radius:9px; padding:8px 12px; font-size:13px;" onkeydown="if (event.key === 'Enter') searchRecipient()" />
+        <button type="button" class="task-act-btn" style="padding:7px 16px;" onclick="searchRecipient()">搜索</button>
+      </div>
+      <div id="recipientSearchResult" style="margin-top:10px;"></div>
     </div>
 
     <div class="card">
