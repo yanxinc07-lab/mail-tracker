@@ -763,6 +763,11 @@ async def dashboard_page(request: Request):
 async def outreach_page(request: Request):
     return _page_with_sender_cookie("outreach.html", request)
 
+
+@app.get("/progress", response_class=HTMLResponse)
+async def progress_page(request: Request):
+    return _page_with_sender_cookie("progress.html", request)
+
 # ==========================================
 # 追踪像素端点
 # ==========================================
