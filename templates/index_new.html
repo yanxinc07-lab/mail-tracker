@@ -7,176 +7,193 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --ink: #060D18;
+      --ink-2: #0A1626;
+      --gold: #E9B558;
+      --gold-deep: #D9932C;
+      --paper: #F7F3EC;
+      --paper-70: rgba(247, 243, 236, 0.72);
+      --paper-50: rgba(247, 243, 236, 0.5);
+      --line: rgba(255, 255, 255, 0.14);
+      --glass: rgba(10, 22, 38, 0.55);
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body {
-      width: 100%;
-      min-height: 100vh;
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
-      color: #17221C;
-      background:
-        radial-gradient(900px 480px at 85% -80px, rgba(64, 145, 108, 0.14), transparent 60%),
-        radial-gradient(700px 420px at -120px 30%, rgba(45, 106, 79, 0.08), transparent 60%),
-        #F6F8F6;
+      width: 100%; min-height: 100vh;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--paper); background: var(--ink);
       overflow-x: hidden;
     }
     a { text-decoration: none; color: inherit; }
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+    .serif { font-family: 'Noto Serif SC', "Songti SC", serif; }
+
+    /* 视频背景 */
+    .video-bg-container { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -2; overflow: hidden; pointer-events: none; }
+    .video-bg { width: 100%; height: 100%; object-fit: cover; object-position: center bottom; }
+    .video-overlay {
+      position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background: linear-gradient(180deg, rgba(6, 13, 24, 0.42) 0%, rgba(6, 13, 24, 0.08) 38%, rgba(6, 13, 24, 0.55) 78%, var(--ink) 100%);
+    }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 10; }
 
     /* 顶栏 */
-    header { height: 76px; display: flex; align-items: center; justify-content: space-between; }
-    .brand { font-size: 19px; font-weight: 800; letter-spacing: 0.02em; display: flex; align-items: center; gap: 10px; color: #17221C; }
+    header { height: 80px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { font-size: 18px; font-weight: 800; letter-spacing: 0.14em; display: flex; align-items: center; gap: 11px; text-transform: uppercase; }
     .brand-mark {
       width: 34px; height: 34px; border-radius: 10px;
-      background: linear-gradient(135deg, #2D6A4F, #40916C);
+      background: linear-gradient(135deg, var(--gold-deep), var(--gold));
       display: inline-flex; align-items: center; justify-content: center;
-      box-shadow: 0 6px 16px rgba(45, 106, 79, 0.35);
+      box-shadow: 0 8px 22px rgba(217, 147, 44, 0.45);
     }
     .nav-actions { display: flex; align-items: center; gap: 12px; }
     .btn-nav {
       padding: 8px 18px; border-radius: 999px;
-      background: #FFFFFF; border: 1px solid #DCE7DE;
-      color: #2D6A4F; font-size: 13px; font-weight: 600;
+      background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      color: var(--paper); font-size: 13px; font-weight: 600;
       transition: 0.2s; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
     }
-    .btn-nav:hover { border-color: #40916C; box-shadow: 0 4px 14px rgba(45, 106, 79, 0.12); }
-    .btn-nav-primary { background: #2D6A4F; border-color: #2D6A4F; color: #fff; }
-    .btn-nav-primary:hover { background: #40916C; }
+    .btn-nav:hover { background: rgba(255, 255, 255, 0.18); }
+    .btn-nav-gold { background: linear-gradient(135deg, var(--gold-deep), var(--gold)); border: none; color: #241A05; }
+    .btn-nav-gold:hover { filter: brightness(1.07); background: linear-gradient(135deg, var(--gold-deep), var(--gold)); }
 
-    /* 首屏 */
-    .hero { text-align: center; padding: 72px 0 10px; }
+    /* 首屏：极简 */
+    .hero {
+      min-height: calc(100vh - 80px);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      text-align: center; padding-bottom: 30px;
+    }
     .hero-tag {
-      display: inline-flex; align-items: center; gap: 7px;
-      padding: 6px 16px; border-radius: 999px;
-      background: #E7F2EA; border: 1px solid #CBE3D2;
-      font-size: 12.5px; color: #2D6A4F; font-weight: 700; letter-spacing: 0.06em;
-      margin-bottom: 26px;
+      font-size: 12px; letter-spacing: 0.34em; color: var(--gold);
+      font-weight: 700; text-transform: uppercase; margin-bottom: 28px;
+      display: inline-flex; align-items: center; gap: 14px;
     }
-    .hero-tag .dot { width: 7px; height: 7px; border-radius: 50%; background: #40916C; }
-    .hero-title { font-size: clamp(38px, 5.2vw, 60px); font-weight: 800; line-height: 1.18; letter-spacing: -0.01em; margin-bottom: 20px; }
-    .hero-title .hl { color: #2D6A4F; }
-    .hero-desc { font-size: 16.5px; line-height: 1.75; color: #51635A; max-width: 640px; margin: 0 auto 34px; }
-    .hero-btns { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; }
-    .btn-primary {
-      padding: 14px 34px; border-radius: 999px; border: none; cursor: pointer;
-      background: linear-gradient(135deg, #2D6A4F, #40916C); color: #fff;
-      font-size: 15px; font-weight: 700;
-      box-shadow: 0 10px 26px rgba(45, 106, 79, 0.35);
-      display: inline-flex; align-items: center; gap: 7px; transition: 0.2s;
+    .hero-tag::before, .hero-tag::after { content: ""; width: 34px; height: 1px; background: linear-gradient(90deg, transparent, var(--gold)); }
+    .hero-tag::after { background: linear-gradient(90deg, var(--gold), transparent); }
+    .hero-title {
+      font-size: clamp(44px, 6.4vw, 76px); font-weight: 900; line-height: 1.22;
+      letter-spacing: 0.02em; margin-bottom: 22px;
+      text-shadow: 0 6px 34px rgba(0, 0, 0, 0.65);
     }
-    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(45, 106, 79, 0.45); }
-    .btn-secondary {
-      padding: 14px 30px; border-radius: 999px; cursor: pointer;
-      background: #FFFFFF; border: 1.5px solid #CFE0D5; color: #2D6A4F;
-      font-size: 15px; font-weight: 700;
-      display: inline-flex; align-items: center; gap: 7px; transition: 0.2s;
+    .hero-title .gold-text {
+      background: linear-gradient(120deg, #F6C177 10%, #E9B558 45%, #D9932C 90%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
     }
-    .btn-secondary:hover { border-color: #40916C; box-shadow: 0 8px 20px rgba(45, 106, 79, 0.12); }
-    .hero-note { margin-top: 18px; font-size: 13px; color: #84968B; }
+    .hero-desc { font-size: 16.5px; line-height: 1.8; color: var(--paper-70); max-width: 560px; margin-bottom: 38px; text-shadow: 0 2px 12px rgba(0,0,0,0.7); }
+    .hero-btns { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+    .btn-gold {
+      padding: 15px 38px; border-radius: 999px; border: none; cursor: pointer;
+      background: linear-gradient(135deg, var(--gold-deep), var(--gold));
+      color: #241A05; font-size: 15px; font-weight: 800; letter-spacing: 0.04em;
+      box-shadow: 0 12px 34px rgba(217, 147, 44, 0.5);
+      display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
+    }
+    .btn-gold:hover { transform: translateY(-2px); filter: brightness(1.06); box-shadow: 0 18px 40px rgba(217, 147, 44, 0.6); }
+    .btn-glass {
+      padding: 15px 32px; border-radius: 999px; cursor: pointer;
+      background: rgba(10, 22, 38, 0.4); border: 1px solid rgba(255, 255, 255, 0.35);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      color: #fff; font-size: 15px; font-weight: 700;
+      display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
+    }
+    .btn-glass:hover { background: rgba(255, 255, 255, 0.16); }
+    .hero-note { margin-top: 26px; font-size: 12.5px; letter-spacing: 0.18em; color: var(--paper-50); }
+    .scroll-cue { margin-top: 54px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--paper-50); font-size: 10.5px; letter-spacing: 0.3em; }
+    .scroll-cue .line { width: 1px; height: 44px; background: linear-gradient(180deg, var(--gold), transparent); animation: cueDrop 2.2s ease-in-out infinite; }
+    @keyframes cueDrop { 0%, 100% { transform: scaleY(0.55); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
 
-    /* 产品界面示意窗 */
+    /* 第二屏：新工作台样貌（深色实底，与内页同一套语言） */
+    .stage { background: linear-gradient(180deg, var(--ink) 0%, var(--ink-2) 100%); padding: 30px 0 84px; }
+    .stage-head { text-align: center; margin: 26px 0 40px; }
+    .stage-kicker { font-size: 11.5px; letter-spacing: 0.34em; color: var(--gold); font-weight: 700; text-transform: uppercase; margin-bottom: 14px; }
+    .stage-title { font-size: clamp(26px, 3.4vw, 36px); font-weight: 700; }
+    .stage-sub { margin-top: 10px; font-size: 14px; color: var(--paper-50); }
+
     .mock {
-      max-width: 880px; margin: 52px auto 0;
-      background: #FFFFFF; border: 1px solid #E1EAE3; border-radius: 18px;
-      box-shadow: 0 30px 70px rgba(23, 34, 28, 0.12);
+      max-width: 880px; margin: 0 auto;
+      background: var(--glass); border: 1px solid var(--line); border-radius: 20px;
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 34px 80px rgba(0, 0, 0, 0.55);
       overflow: hidden; text-align: left;
     }
-    .mock-bar {
-      display: flex; align-items: center; gap: 8px;
-      padding: 12px 18px; border-bottom: 1px solid #EEF3F0; background: #FBFCFB;
-    }
+    .mock-bar { display: flex; align-items: center; gap: 8px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
     .mock-bar .d { width: 11px; height: 11px; border-radius: 50%; }
-    .mock-bar .title { margin-left: 8px; font-size: 13px; font-weight: 700; color: #51635A; }
-    .mock-body { padding: 20px 22px 22px; }
+    .mock-bar .title { margin-left: 8px; font-size: 13px; font-weight: 700; color: var(--paper-70); letter-spacing: 0.06em; }
+    .mock-body { padding: 22px 24px 24px; }
     .mock-task-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .mock-task-name { font-size: 15.5px; font-weight: 800; }
-    .mock-task-meta { font-size: 12.5px; color: #84968B; }
-    .mock-progress { height: 9px; border-radius: 99px; background: #E7F2EA; margin: 12px 0 6px; overflow: hidden; }
-    .mock-progress > div { height: 100%; width: 83%; border-radius: 99px; background: linear-gradient(90deg, #2D6A4F, #40916C); }
-    .mock-progress-text { font-size: 12px; color: #72847A; margin-bottom: 12px; }
-    .mock-row {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 12px; border: 1px solid #EEF3F0; border-radius: 12px; margin-top: 8px;
-      font-size: 13.5px;
-    }
+    .mock-task-name { font-size: 16px; font-weight: 800; }
+    .mock-task-meta { font-size: 12.5px; color: var(--paper-50); }
+    .mock-progress { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.1); margin: 14px 0 7px; overflow: hidden; }
+    .mock-progress > div { height: 100%; width: 83%; border-radius: 99px; background: linear-gradient(90deg, var(--gold-deep), var(--gold)); box-shadow: 0 0 14px rgba(233, 181, 88, 0.55); }
+    .mock-progress-text { font-size: 12px; color: var(--paper-50); margin-bottom: 10px; }
+    .mock-row { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; margin-top: 8px; font-size: 13.5px; background: rgba(255, 255, 255, 0.03); }
     .mock-row .who { font-weight: 700; }
-    .mock-row .mail { color: #84968B; font-size: 12.5px; }
+    .mock-row .mail { color: var(--paper-50); font-size: 12.5px; }
     .mock-row .spacer { flex: 1; }
-    .chip { font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
-    .chip-open { background: #E7F2EA; color: #2D6A4F; }
-    .chip-sent { background: #EDF2F7; color: #5B7290; }
-    .chip-run { background: #FFF4E0; color: #9A6B1F; }
+    .chip { font-size: 11.5px; font-weight: 700; padding: 3px 11px; border-radius: 999px; white-space: nowrap; }
+    .chip-open { background: rgba(233, 181, 88, 0.16); color: var(--gold); border: 1px solid rgba(233, 181, 88, 0.4); }
+    .chip-sent { background: rgba(255, 255, 255, 0.07); color: var(--paper-70); border: 1px solid rgba(255, 255, 255, 0.12); }
+    .chip-run { background: rgba(255, 255, 255, 0.07); color: var(--paper-70); border: 1px solid rgba(255, 255, 255, 0.12); display: inline-flex; align-items: center; gap: 6px; }
+    .chip-run .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: cueDrop 1.4s ease-in-out infinite; }
 
-    /* 功能卡 */
-    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 64px 0 8px; }
-    .f-card {
-      background: #FFFFFF; border: 1px solid #E1EAE3; border-radius: 18px;
-      padding: 28px 24px; text-align: left; transition: 0.25s;
+    .features { max-width: 880px; margin: 46px auto 0; display: flex; flex-direction: column; }
+    .feat { display: flex; gap: 18px; padding: 20px 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); align-items: flex-start; }
+    .feat:last-child { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+    .feat-icon {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      background: rgba(233, 181, 88, 0.12); border: 1px solid rgba(233, 181, 88, 0.3);
+      display: flex; align-items: center; justify-content: center;
     }
-    .f-card:hover { transform: translateY(-4px); box-shadow: 0 16px 36px rgba(23, 34, 28, 0.08); border-color: #CBE3D2; }
-    .f-icon {
-      width: 46px; height: 46px; border-radius: 13px; margin-bottom: 16px;
-      background: #E7F2EA; display: flex; align-items: center; justify-content: center;
-    }
-    .f-card h3 { font-size: 17px; font-weight: 800; margin-bottom: 9px; }
-    .f-card p { font-size: 14px; color: #51635A; line-height: 1.7; }
+    .feat h3 { font-size: 15.5px; font-weight: 800; margin-bottom: 4px; }
+    .feat p { font-size: 13.5px; color: var(--paper-50); line-height: 1.65; }
 
-    /* 四步 */
-    .steps {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
-      margin: 44px 0 70px;
-    }
-    .step { text-align: left; padding: 4px 2px; }
-    .step .num {
-      width: 30px; height: 30px; border-radius: 50%;
-      background: #2D6A4F; color: #fff; font-size: 14px; font-weight: 800;
-      display: flex; align-items: center; justify-content: center; margin-bottom: 10px;
-    }
-    .step h4 { font-size: 15px; font-weight: 800; margin-bottom: 5px; }
-    .step p { font-size: 13px; color: #72847A; line-height: 1.6; }
-
-    footer { text-align: center; padding: 30px 0 46px; font-size: 13px; color: #93A69B; border-top: 1px solid #E4EDE6; }
+    footer { text-align: center; padding: 44px 0 52px; font-size: 12.5px; letter-spacing: 0.14em; color: rgba(247, 243, 236, 0.35); background: var(--ink-2); }
 
     /* 登录弹层 */
     #authOverlay {
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(23, 34, 28, 0.45);
-      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      position: fixed; inset: 0; width: 100vw; height: 100vh;
+      background: rgba(4, 8, 15, 0.6);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       z-index: 9999; display: none; align-items: center; justify-content: center;
     }
     .auth-card {
-      background: #FFFFFF; width: 380px; max-width: calc(100vw - 40px);
-      border-radius: 20px; padding: 36px 32px;
-      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
-      text-align: center; color: #202D26; position: relative;
+      background: rgba(13, 25, 42, 0.92); width: 380px; max-width: calc(100vw - 40px);
+      border: 1px solid var(--line); border-radius: 20px; padding: 36px 32px;
+      box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+      text-align: center; color: var(--paper); position: relative;
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     }
-    .auth-close { position: absolute; top: 16px; right: 18px; font-size: 20px; color: #94a3b8; cursor: pointer; border: none; background: none; }
-    .auth-close:hover { color: #17221C; }
-    .auth-card h2 { font-size: 20px; font-weight: 800; color: #17221C; margin-bottom: 6px; }
-    .auth-card p { font-size: 13px; color: #72847A; margin-bottom: 22px; }
+    .auth-close { position: absolute; top: 16px; right: 18px; font-size: 20px; color: var(--paper-50); cursor: pointer; border: none; background: none; }
+    .auth-close:hover { color: #fff; }
+    .auth-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .auth-card p { font-size: 13px; color: var(--paper-50); margin-bottom: 22px; }
     .auth-input {
-      width: 100%; padding: 11px 14px; border: 1px solid rgba(36, 51, 44, 0.15);
-      border-radius: 9px; font-size: 13px; margin-bottom: 12px; outline: none;
-      background: #FAFBF9; color: #202D26; box-sizing: border-box;
+      width: 100%; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 10px; font-size: 13px; margin-bottom: 12px; outline: none;
+      background: rgba(255, 255, 255, 0.06); color: #fff; box-sizing: border-box;
     }
-    .auth-input:focus { border-color: #2D6A4F; background: #FFFFFF; box-shadow: 0 0 0 3px rgba(45, 106, 79, 0.15); }
+    .auth-input::placeholder { color: rgba(247, 243, 236, 0.35); }
+    .auth-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(233, 181, 88, 0.18); }
     .auth-btn {
-      width: 100%; padding: 12px 0; background: #2D6A4F; color: #fff; border: none;
-      border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 6px;
-      box-shadow: 0 4px 12px rgba(45, 106, 79, 0.3); transition: 0.2s;
+      width: 100%; padding: 12px 0; border: none; border-radius: 10px;
+      background: linear-gradient(135deg, var(--gold-deep), var(--gold));
+      color: #241A05; font-size: 14px; font-weight: 800; cursor: pointer; margin-top: 6px;
+      box-shadow: 0 6px 18px rgba(217, 147, 44, 0.4); transition: 0.2s;
     }
-    .auth-btn:hover { background: #40916C; }
-    .auth-toggle { font-size: 12px; color: #72847A; margin-top: 18px; }
-    .auth-toggle a { color: #2D6A4F; cursor: pointer; font-weight: 600; margin-left: 4px; }
+    .auth-btn:hover { filter: brightness(1.07); }
+    .auth-toggle { font-size: 12px; color: var(--paper-50); margin-top: 18px; }
+    .auth-toggle a { color: var(--gold); cursor: pointer; font-weight: 700; margin-left: 4px; }
 
     @media (max-width: 860px) {
-      .features, .steps { grid-template-columns: 1fr; }
-      .hero { padding-top: 44px; }
-      .hero-btns { flex-direction: column; }
-      .btn-primary, .btn-secondary { width: 100%; justify-content: center; }
+      .hero-btns { flex-direction: column; width: 100%; }
+      .btn-gold, .btn-glass { width: 100%; justify-content: center; }
       header .btn-nav.plugin { display: none; }
+      .hero-tag { letter-spacing: 0.22em; }
     }
   </style>
 
@@ -196,16 +213,16 @@
       if (session && session.user) {
         currentUser = session.user;
         navUserZone.innerHTML = `
-          <span style="font-size:13px; color:#51635A; display:inline-flex; align-items:center; gap:6px;">
+          <span style="font-size:13px; color:rgba(247,243,236,0.85); display:inline-flex; align-items:center; gap:6px;">
             <span style="width:8px; height:8px; border-radius:50%; background:#34d399; box-shadow:0 0 8px #34d399;"></span>
             ${currentUser.email}
           </span>
-          <button onclick="handleLogout()" class="btn-nav" style="padding:6px 14px; font-size:12px; background:#FDECEC; border-color:#F5C6C6; color:#C62828;">退出</button>
+          <button onclick="handleLogout()" class="btn-nav" style="padding:6px 14px; font-size:12px; background:rgba(239,68,68,0.16); border-color:rgba(239,68,68,0.4); color:#fca5a5;">退出</button>
         `;
       } else {
         currentUser = null;
         navUserZone.innerHTML = `
-          <button onclick="openAuthModal()" class="btn-nav btn-nav-primary">登录 / 注册</button>
+          <button onclick="openAuthModal()" class="btn-nav btn-nav-gold">登录 / 注册</button>
         `;
       }
     }
@@ -244,20 +261,20 @@
       const msgEl = document.getElementById('authMsg');
 
       if (!email || !password) {
-        msgEl.style.color = '#ef4444';
+        msgEl.style.color = '#F87171';
         msgEl.innerText = '请填写邮箱和密码';
         return;
       }
-      msgEl.style.color = '#2D6A4F';
+      msgEl.style.color = '#E9B558';
       msgEl.innerText = isRegisterMode ? '正在注册...' : '正在登录...';
 
       if (isRegisterMode) {
         const { data, error } = await client.auth.signUp({ email, password });
         if (error) {
-          msgEl.style.color = '#ef4444';
+          msgEl.style.color = '#F87171';
           msgEl.innerText = error.message;
         } else {
-          msgEl.style.color = '#10b981';
+          msgEl.style.color = '#34D399';
           msgEl.innerText = '注册成功！正在进入...';
           setTimeout(() => {
             closeAuthModal();
@@ -268,10 +285,10 @@
       } else {
         const { data, error } = await client.auth.signInWithPassword({ email, password });
         if (error) {
-          msgEl.style.color = '#ef4444';
+          msgEl.style.color = '#F87171';
           msgEl.innerText = '登录失败: ' + error.message;
         } else {
-          msgEl.style.color = '#10b981';
+          msgEl.style.color = '#34D399';
           msgEl.innerText = '登录成功！';
           setTimeout(() => {
             closeAuthModal();
@@ -294,11 +311,18 @@
 </head>
 <body>
 
+  <div class="video-bg-container">
+    <video autoplay loop muted playsinline class="video-bg">
+      <source src="/static/ocean.mp4" type="video/mp4">
+    </video>
+  </div>
+  <div class="video-overlay"></div>
+
   <!-- 登录弹窗 -->
   <div id="authOverlay">
     <div class="auth-card">
       <button class="auth-close" onclick="closeAuthModal()">✕</button>
-      <h2 id="authTitle">登录系统</h2>
+      <h2 id="authTitle" class="serif">登录系统</h2>
       <p>看见每封邮件的下一步</p>
       <input type="email" id="authEmail" class="auth-input" placeholder="请输入你的邮箱地址" />
       <input type="password" id="authPassword" class="auth-input" placeholder="请输入密码 (至少6位)" />
@@ -315,7 +339,7 @@
     <header>
       <a class="brand" href="/">
         <span class="brand-mark">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m3 6 9 7 9-7"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#241A05" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m3 6 9 7 9-7"/></svg>
         </span>
         MailTracker
       </a>
@@ -329,16 +353,27 @@
     </header>
 
     <section class="hero">
-      <div class="hero-tag"><span class="dot"></span>达人邀约 · 批量触达工作台</div>
-      <h1 class="hero-title">每一封邮件，<span class="hl">都有迹可循。</span></h1>
-      <p class="hero-desc">把达人名单放进来，用你的 Gmail 批量发出合作邀约。<br>谁打开了、打开了几次、什么时候打开的——发出去之后的事，一眼看清。</p>
+      <div class="hero-tag">达人邀约 · 批量触达</div>
+      <h1 class="hero-title serif">每一封邮件，<br><span class="gold-text">都有迹可循。</span></h1>
+      <p class="hero-desc">用你的 Gmail，批量发出达人合作邀约。<br>谁打开了、打开了几次——发出去之后的事，一眼看清。</p>
       <div class="hero-btns">
-        <button onclick="navigateTo('/outreach')" class="btn-primary">发起批量触达 →</button>
-        <button onclick="navigateTo('/dashboard')" class="btn-secondary">进入数据大盘</button>
+        <button onclick="navigateTo('/outreach')" class="btn-gold">发起批量触达</button>
+        <button onclick="navigateTo('/dashboard')" class="btn-glass">进入数据大盘</button>
       </div>
-      <div class="hero-note">多账号轮换发送 · 每封间隔可调 · 任务中断可续发</div>
+      <div class="hero-note">多账号轮换 · 间隔可调 · 中断可续</div>
+      <div class="scroll-cue"><span>SCROLL</span><span class="line"></span></div>
+    </section>
+  </div>
 
-      <!-- 产品界面示意 -->
+  <!-- 第二屏：新工作台样貌 -->
+  <div class="stage">
+    <div class="wrap">
+      <div class="stage-head">
+        <div class="stage-kicker">工作台 · 新样貌</div>
+        <div class="stage-title serif">发信、进度、打开，一套语言。</div>
+        <div class="stage-sub">这是接下来工作台三页要换上的设计——先在这里给你看个样。</div>
+      </div>
+
       <div class="mock">
         <div class="mock-bar">
           <span class="d" style="background:#FF5F57;"></span>
@@ -353,59 +388,31 @@
           </div>
           <div class="mock-progress"><div></div></div>
           <div class="mock-progress-text">已处理 5 / 6 · 83%</div>
-          <div class="mock-row">
-            <span class="who">Mia</span><span class="mail">mia.creates@…</span>
-            <span class="spacer"></span><span class="chip chip-open">👀 已打开 ×2</span>
-          </div>
-          <div class="mock-row">
-            <span class="who">Jordan</span><span class="mail">jordan.home@…</span>
-            <span class="spacer"></span><span class="chip chip-open">👀 已打开 ×1</span>
-          </div>
-          <div class="mock-row">
-            <span class="who">Sofia</span><span class="mail">sofia.pets@…</span>
-            <span class="spacer"></span><span class="chip chip-sent">已发送</span>
-          </div>
-          <div class="mock-row">
-            <span class="who">Liam</span><span class="mail">liam.daily@…</span>
-            <span class="spacer"></span><span class="chip chip-run">发送中…</span>
-          </div>
+          <div class="mock-row"><span class="who">Mia</span><span class="mail">mia.creates@…</span><span class="spacer"></span><span class="chip chip-open">已打开 ×2</span></div>
+          <div class="mock-row"><span class="who">Jordan</span><span class="mail">jordan.home@…</span><span class="spacer"></span><span class="chip chip-open">已打开 ×1</span></div>
+          <div class="mock-row"><span class="who">Sofia</span><span class="mail">sofia.pets@…</span><span class="spacer"></span><span class="chip chip-sent">已发送</span></div>
+          <div class="mock-row"><span class="who">Liam</span><span class="mail">liam.daily@…</span><span class="spacer"></span><span class="chip chip-run"><span class="pulse"></span>发送中</span></div>
         </div>
       </div>
-    </section>
 
-    <div class="features">
-      <div class="f-card">
-        <div class="f-icon">
-          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5 21 6.5l-4 4"/><path d="M3 12.5v-1a5 5 0 0 1 5-5h13"/><path d="m7 21.5-4-4 4-4"/><path d="M21 11.5v1a5 5 0 0 1-5 5H3"/></svg>
+      <div class="features">
+        <div class="feat">
+          <div class="feat-icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#E9B558" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5 21 6.5l-4 4"/><path d="M3 12.5v-1a5 5 0 0 1 5-5h13"/><path d="m7 21.5-4-4 4-4"/><path d="M21 11.5v1a5 5 0 0 1-5 5H3"/></svg></div>
+          <div><h3>多账号轮换发送</h3><p>绑定多个 Gmail 轮流派发，每个账号各算各的量，一个到量自动换下一个。</p></div>
         </div>
-        <h3>多账号轮换发送</h3>
-        <p>绑定多个 Gmail 账号，系统轮流派发任务。每个账号的发送量各算各的，一个到量自动换下一个，不用守着手动切换。</p>
-      </div>
-      <div class="f-card">
-        <div class="f-icon">
-          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div class="feat">
+          <div class="feat-icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#E9B558" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <div><h3>打开实时追踪</h3><p>每封带专属追踪：打开了没、几次、什么时间，自动汇总进数据大盘。</p></div>
         </div>
-        <h3>打开实时追踪</h3>
-        <p>每封邮件带专属追踪：收件人打开了没、打开过几次、什么时间打开的，自动汇总进数据大盘，不用猜、不用等。</p>
-      </div>
-      <div class="f-card">
-        <div class="f-icon">
-          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <div class="feat">
+          <div class="feat-icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#E9B558" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <div><h3>节奏可调，中断可续</h3><p>间隔由你定、随机浮动；中途断了点「继续发送」接着跑，已发过的绝不重复。</p></div>
         </div>
-        <h3>节奏可调，中断可续</h3>
-        <p>每封之间的间隔由你定，在最少和最多之间随机，节奏自然。任务中途断了，回来点「继续发送」，没发的人接着发，已发过的绝不重复。</p>
       </div>
     </div>
-
-    <div class="steps">
-      <div class="step"><div class="num">1</div><h4>导入名单</h4><p>粘贴邮箱或导入表格，重复的自动去重。</p></div>
-      <div class="step"><div class="num">2</div><h4>套用文案</h4><p>选好存过的文案，名字变量自动替换。</p></div>
-      <div class="step"><div class="num">3</div><h4>开始发送</h4><p>定好间隔，点发送就能放着跑。</p></div>
-      <div class="step"><div class="num">4</div><h4>看进度与打开</h4><p>进度页看发送，数据盘看打开。</p></div>
-    </div>
-
-    <footer>© 2026 MailTracker · 看见每封邮件的下一步</footer>
   </div>
+
+  <footer>© 2026 MAILTRACKER · 看见每封邮件的下一步</footer>
 
 </body>
 </html>
