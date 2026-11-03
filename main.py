@@ -110,6 +110,8 @@ class SmtpAccount(BaseModel):
 class BatchTaskRequest(BaseModel):
     user_email: str = ""
     user_id: str = ""
+    subject_template: str = ""  # 未替换变量的原始主题：进度表拿它当批次标题，不再拿第一封渲染后的主题冒充整批
+    batch_name: str = ""  # 用户给这一批起的名字（可空）：填了就用它当进度表标题，比主题模板更好认
     accounts: List[SmtpAccount] = []
     emails: List[EmailItem]
     daily_cap: int = 50
@@ -237,6 +239,8 @@ def _startup_housekeeping():
     标出来后用户才能在进度页对它们点“继续发送”或“终止”。"""
     try:
         _db_exec("ALTER TABLE emails ADD COLUMN IF NOT EXISTS task_id text")
+        _db_exec("CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, "
+                 "key text NOT NULL, value text, PRIMARY KEY (user_id, key))")
         _db_exec("ALTER TABLE send_tasks ADD COLUMN IF NOT EXISTS payload text")
         _db_exec("UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')")
     except Exception as e:
@@ -730,6 +734,8 @@ def _launch_task(user_id: str, req: BatchTaskRequest, background_tasks: Backgrou
         "link_enabled": req.link_enabled,
         "link_url": req.link_url,
         "link_text": req.link_text,
+        "subject_template": req.subject_template,
+        "batch_name": req.batch_name,
         "continued_from": continued_from,
     }
     try:
@@ -738,7 +744,7 @@ def _launch_task(user_id: str, req: BatchTaskRequest, background_tasks: Backgrou
             "accounts, subject, created_at, notes, payload) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (task_id, user_id, "running", len(req.emails), 0, 0, 0,
              ",".join(a.email for a in req.accounts),
-             req.emails[0].subject if req.emails else "",
+             req.batch_name or req.subject_template or (req.emails[0].subject if req.emails else ""),
              TASKS[task_id]["created_at"], "", json.dumps(payload, ensure_ascii=False)))
     except Exception as e:
         print(f"insert send_tasks failed: {e}")
@@ -931,6 +937,36 @@ async def terminate_task(task_id: str, authorization: Optional[str] = Header(def
         _db_exec("UPDATE send_tasks SET status = 'stopped' WHERE id = %s", (task_id,))
         return {"success": True, "mode": "record", "status": "stopped"}
     return {"success": True, "mode": "record", "status": row["status"]}
+
+# ==========================================
+# 用户个人设置（按登录账号隔离保存，如插入链接时填的地址与文字）
+# 规则：凡是要长期记住的填写内容，一律按账号存这里，各账号互不可见，
+# 绝不写死在页面里给所有人看（2026-11-03 用户定的规矩）。
+# ==========================================
+class LinkSettingIn(BaseModel):
+    link_url: str = ""
+    link_text: str = ""
+
+
+@app.get("/api/settings/link")
+async def get_link_setting(authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    rows = _db_query("SELECT key, value FROM user_settings WHERE user_id = %s "
+                     "AND key IN ('link_url', 'link_text')", (user_id,))
+    d = {r["key"]: r["value"] for r in rows}
+    return {"link_url": d.get("link_url") or "", "link_text": d.get("link_text") or ""}
+
+
+@app.post("/api/settings/link")
+async def save_link_setting(payload: LinkSettingIn,
+                            authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    for k, v in (("link_url", payload.link_url), ("link_text", payload.link_text)):
+        _db_exec("INSERT INTO user_settings (user_id, key, value) VALUES (%s, %s, %s) "
+                 "ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value",
+                 (user_id, k, v or ""))
+    return {"success": True}
+
 
 # ==========================================
 # 发信账号接口（云端保存，授权码加密；前端永远看不到明文）
