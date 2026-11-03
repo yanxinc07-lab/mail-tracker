@@ -659,21 +659,35 @@
     }
 
     // 插入链接：工具栏按钮打开小窗，确认后把链接行插到正文光标处（所见即所发）。
-    function openLinkModal() {
+    async function openLinkModal() {
       document.getElementById("linkModal").style.display = "flex";
+      // 回填这个账号自己上次填的链接（按账号存云端，各账号互不可见，绝不串号）
+      try {
+        const resp = await fetch("/api/settings/link", { headers: await apiHeaders() });
+        if (resp.ok) {
+          const d = await resp.json();
+          document.getElementById("linkUrlInput").value = d.link_url || "";
+          document.getElementById("linkTextInput").value = d.link_text || "";
+        }
+      } catch (e) { /* 读不到就保持空白，不挡插入 */ }
     }
 
     function closeLinkModal() {
       document.getElementById("linkModal").style.display = "none";
     }
 
-    function insertProductLink() {
+    async function insertProductLink() {
       const url = (document.getElementById("linkUrlInput")?.value || "").trim();
+      const rawText = (document.getElementById("linkTextInput")?.value || "").trim();
       // 链接文字留白时，用链接地址本身当文字——否则会插进一个没有文字的空链接，收件人看不见也点不到
-      const text = (document.getElementById("linkTextInput")?.value || "").trim() || url;
+      const text = rawText || url;
       if (!/^https?:\/\//i.test(url)) { alert("链接地址需以 http:// 或 https:// 开头"); return; }
       closeLinkModal();
       insertHtmlAtCursor(`<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>`);
+      // 把这次填的按账号存下来，下次打开自动回填（存的是原始输入，留白仍记为空）
+      try {
+        await fetch("/api/settings/link", { method: "POST", headers: await apiHeaders(), body: JSON.stringify({ link_url: url, link_text: rawText }) });
+      } catch (e) { /* 存不下不影响本次插入 */ }
     }
 
     // ---------- 文案库（云端 Supabase，按登录账号隔离，RLS 保证只能看到自己的） ----------
@@ -826,6 +840,8 @@
           headers: await apiHeaders(),
           body: JSON.stringify({
             emails: payloadList,
+            subject_template: emailSubject,
+            batch_name: (document.getElementById("batchName")?.value || "").trim(),
             daily_cap: 50,
             interval_seconds: Math.min(parseFloat(document.getElementById("intervalMin")?.value) || 0, parseFloat(document.getElementById("intervalMax")?.value) || 0) * 60,
             interval_max_seconds: Math.max(parseFloat(document.getElementById("intervalMin")?.value) || 0, parseFloat(document.getElementById("intervalMax")?.value) || 0) * 60,
@@ -1031,6 +1047,12 @@
 
       <div id="progressContainer" class="progress-bar-container">
         <div id="progressBar" class="progress-bar"></div>
+      </div>
+
+      <div class="form-group" style="margin-top:14px;">
+        <label class="form-label">🏷 批次名称（可不填）</label>
+        <input type="text" id="batchName" class="form-input" placeholder="给这一批起个名，方便以后在进度表里回看，如：11月美区宠物达人第一批" autocomplete="off" />
+        <span class="help-hint">不填就用主题模板当标题。</span>
       </div>
 
       <div class="form-group" style="margin-top:14px;">
