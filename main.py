@@ -77,9 +77,10 @@ SENDER_COOKIE_NAME = "is_sender_device"
 SENDER_COOKIE_MAX_AGE = 365 * 24 * 3600  # 一年
 MAX_EMAILS_PER_TASK = 1000  # 单批收件人硬上限（与前端导入上限一致，防误发）
 
-# 商品链接行默认值（用户已确认过的商品短链接与文案，2026-11-02）
-DEFAULT_LINK_URL = "https://shop.tiktok.com/us/pdp/1732256087876277185"
-DEFAULT_LINK_TEXT = "👉 See it on TikTok Shop — already 2.9K+ sold ✨"
+# 商品链接行默认值：一律为空。早期自用时曾写死站长的商品链接，多用户后任何账号
+# 打开都会被预填站长的广告（2026-11-03 用户发现），故清空；链接由用户在界面里填。
+DEFAULT_LINK_URL = ""
+DEFAULT_LINK_TEXT = ""
 # 正文里可用的链接行占位标记：发送拼装时按开关替换/删除
 LINK_MARKERS = ("[[商品链接]]", "{{product_link_block}}")
 
@@ -228,6 +229,19 @@ def _sync_task_db(task: dict):
 
 app = FastAPI(title="MailTracker Batch Outreach Engine")
 
+
+@app.on_event("startup")
+def _startup_housekeeping():
+    """启动自检：补齐新列；把数据库里残留的“进行中/已暂停”标成“已中断”——
+    进程刚启动时内存里没有任何活任务，库里还挂着的一定是上次被重启/崩溃打断的，
+    标出来后用户才能在进度页对它们点“继续发送”或“终止”。"""
+    try:
+        _db_exec("ALTER TABLE emails ADD COLUMN IF NOT EXISTS task_id text")
+        _db_exec("ALTER TABLE send_tasks ADD COLUMN IF NOT EXISTS payload text")
+        _db_exec("UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')")
+    except Exception as e:
+        print(f"startup housekeeping failed: {e}")
+
 # 挂载静态目录与模板
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -333,22 +347,22 @@ def assemble_content(html: str, *, link_enabled: bool, link_url: str, link_text:
 # ==========================================
 # 发送记录（Supabase emails 表，带 status 并做降级）
 # ==========================================
-def _insert_record(user_id: str, item: EmailItem) -> str:
+def _insert_record(user_id: str, item: EmailItem, task_id: str = None) -> str:
     """按线上 emails 表结构写记录：id 由后端生成（text 主键、无默认值），
     user_id 为登录用户 uuid，send_time 存 ISO 文本，open_count 初始 0。"""
     rid = str(uuid.uuid4())
     _db_exec(
-        "INSERT INTO emails (id, recipient, subject, send_time, status, open_count, user_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        "INSERT INTO emails (id, recipient, subject, send_time, status, open_count, user_id, task_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
         (rid, item.to_email, item.subject,
-         datetime.now(timezone.utc).isoformat(), "pending", 0, user_id or None))
+         datetime.now(timezone.utc).isoformat(), "pending", 0, user_id or None, task_id))
     return rid
 
 
-def create_send_record(user_id: str, item: EmailItem) -> Optional[str]:
+def create_send_record(user_id: str, item: EmailItem, task_id: str = None) -> Optional[str]:
     """插入一条 pending 记录并返回 id；失败返回 None（调用方据此判定发送失败）。"""
     try:
-        return _insert_record(user_id, item)
+        return _insert_record(user_id, item, task_id)
     except Exception as e:
         print(f"Insert send record failed: {e}")
         return None
@@ -533,12 +547,12 @@ def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], cont
 
 def send_one(user_id: str, conn: SmtpConnection, item: EmailItem, *,
              link_enabled: bool = False, link_url: str = DEFAULT_LINK_URL,
-             link_text: str = DEFAULT_LINK_TEXT):
+             link_text: str = DEFAULT_LINK_TEXT, task_id: str = None):
     """发送一封：建记录 -> 拼装链接行 -> 组装（含像素）-> 发送（失败自动重试 1 次，重试前重建连接）。
     返回 (ok: bool, error: Optional[str])
     注意：变量替换在调用方（前端提交前）完成，这里只做链接行拼装，且只拼装一次；
     重试时复用同一份组装好的邮件串，不会重复拼装。"""
-    email_id = create_send_record(user_id, item)
+    email_id = create_send_record(user_id, item, task_id)
     if not email_id:
         return False, "record_insert_failed"
     assembled = assemble_content(item.content, link_enabled=link_enabled,
@@ -630,7 +644,7 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
                 conns[chosen.email] = SmtpConnection(chosen)
             ok, err = send_one(req.user_id, conns[chosen.email], item,
                                link_enabled=req.link_enabled, link_url=req.link_url,
-                               link_text=req.link_text)
+                               link_text=req.link_text, task_id=task_id)
             acct_stat = task["per_account"].setdefault(
                 chosen.email, {"sent": 0, "failed": 0})
             if ok:
@@ -685,6 +699,13 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
         raise HTTPException(status_code=400, detail="还没有发信账号，请先在账号区添加（云端保存）")
     req.user_id = user_id
     req.accounts = accounts
+    task_id = _launch_task(user_id, req, background_tasks)
+    return {"success": True, "task_id": task_id, "status": "running", "total": len(req.emails)}
+
+def _launch_task(user_id: str, req: BatchTaskRequest, background_tasks: BackgroundTasks,
+                 continued_from: str = "") -> str:
+    """真正把一个任务跑起来：建内存状态 + 落库（含 payload 快照）+ 挂后台执行。
+    payload 存下名单与发送参数，任务被打断后“继续发送”和“明细回看”全靠它。"""
     task_id = uuid.uuid4().hex[:12]
     TASKS[task_id] = {
         "id": task_id,
@@ -701,18 +722,28 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
         "created_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
     }
+    payload = {
+        "emails": [e.model_dump() for e in req.emails],
+        "daily_cap": req.daily_cap,
+        "interval_seconds": req.interval_seconds,
+        "interval_max_seconds": req.interval_max_seconds,
+        "link_enabled": req.link_enabled,
+        "link_url": req.link_url,
+        "link_text": req.link_text,
+        "continued_from": continued_from,
+    }
     try:
         _db_exec(
             "INSERT INTO send_tasks (id, user_id, status, total, sent, failed, skipped, "
-            "accounts, subject, created_at, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "accounts, subject, created_at, notes, payload) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (task_id, user_id, "running", len(req.emails), 0, 0, 0,
-             ",".join(a.email for a in accounts),
+             ",".join(a.email for a in req.accounts),
              req.emails[0].subject if req.emails else "",
-             TASKS[task_id]["created_at"], ""))
+             TASKS[task_id]["created_at"], "", json.dumps(payload, ensure_ascii=False)))
     except Exception as e:
         print(f"insert send_tasks failed: {e}")
     background_tasks.add_task(run_batch_task, task_id, req)
-    return {"success": True, "task_id": task_id, "status": "running", "total": len(req.emails)}
+    return task_id
 
 def _owned_task(task_id: str, authorization: Optional[str]) -> dict:
     user_id = _verify_user_id(authorization)
@@ -764,6 +795,144 @@ async def stop_batch_task(task_id: str, authorization: Optional[str] = Header(de
     return _public_task(task)
 
 # ==========================================
+# 任务回看 / 继续发送 / 终止（面向数据库里的任务行，含已被打断的）
+# ==========================================
+def _task_row(task_id: str, user_id: str):
+    rows = _db_query(
+        "SELECT id, status, total, sent, failed, skipped, subject, created_at, payload "
+        "FROM send_tasks WHERE id = %s AND user_id = %s", (task_id, user_id))
+    return rows[0] if rows else None
+
+
+@app.get("/api/tasks/{task_id}/detail")
+async def task_detail(task_id: str, authorization: Optional[str] = Header(default=None)):
+    """任务明细：这一批到底给哪些人发了、每人什么状态。
+    新任务（有 payload 快照 + 记录带 task_id）：名单与逐封状态精确对应，未发出的标“未发送”。
+    旧任务（无快照）：按任务时间窗到下一个任务为止去 emails 表里匹配，标 legacy 供前端提示仅供参考。"""
+    user_id = _verify_user_id(authorization)
+    row = _task_row(task_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    payload = None
+    if row.get("payload"):
+        try:
+            payload = json.loads(row["payload"])
+        except Exception:
+            payload = None
+    recs = _db_query(
+        "SELECT recipient, status, send_time, open_count FROM emails "
+        "WHERE task_id = %s AND user_id = %s ORDER BY send_time", (task_id, user_id))
+    recipients = []
+    legacy = False
+    if payload and payload.get("emails"):
+        by_email = {}
+        for r in recs:
+            by_email[r["recipient"]] = r  # 按时间升序，后写的覆盖先写的，取最后一次状态
+        for e in payload["emails"]:
+            r = by_email.get(e["to_email"])
+            if r is None:
+                recipients.append({"email": e["to_email"], "status": "unsent",
+                                   "send_time": None, "open_count": 0})
+            else:
+                recipients.append({"email": e["to_email"], "status": r["status"],
+                                   "send_time": r["send_time"], "open_count": r["open_count"] or 0})
+    else:
+        legacy = True
+        created = row["created_at"]
+        nxt = _db_query(
+            "SELECT MIN(created_at) AS nxt FROM send_tasks WHERE user_id = %s AND created_at > %s",
+            (user_id, created))
+        window_end = (nxt[0]["nxt"] if nxt and nxt[0]["nxt"]
+                      else "2999-01-01T00:00:00+00:00")
+        rows = _db_query(
+            "SELECT recipient, status, send_time, open_count FROM emails "
+            "WHERE user_id = %s AND send_time::timestamptz >= %s AND send_time::timestamptz < %s "
+            "ORDER BY send_time", (user_id, created, window_end))
+        for r in rows:
+            recipients.append({"email": r["recipient"], "status": r["status"],
+                               "send_time": r["send_time"], "open_count": r["open_count"] or 0})
+    return {
+        "task_id": row["id"], "status": row["status"], "subject": row["subject"],
+        "total": row["total"], "sent": row["sent"], "failed": row["failed"],
+        "skipped": row["skipped"], "created_at": row["created_at"],
+        "legacy": legacy, "recipients": recipients,
+    }
+
+
+@app.post("/api/tasks/{task_id}/continue")
+async def continue_task(task_id: str, background_tasks: BackgroundTasks,
+                        authorization: Optional[str] = Header(default=None)):
+    """继续发送：拿原任务保存的名单，跳过一切已经尝试过的人（已发、失败、以及状态不明的
+    pending——宁可漏发也绝不重复投递），按原参数对其余的人新建一个任务接着发。"""
+    user_id = _verify_user_id(authorization)
+    row = _task_row(task_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if row["status"] in ("running", "paused"):
+        raise HTTPException(status_code=400, detail="这个任务还在进行中，不用继续")
+    payload = None
+    if row.get("payload"):
+        try:
+            payload = json.loads(row["payload"])
+        except Exception:
+            payload = None
+    if not payload or not payload.get("emails"):
+        raise HTTPException(status_code=400,
+                            detail="这个任务是旧版本创建的，当时没有保存名单和正文，无法自动继续；请重新准备名单发送，并注意去掉已经发过的人")
+    for t in TASKS.values():
+        if t.get("user_id") == user_id and t.get("status") in ("running", "paused"):
+            done_n = t["sent"] + t["failed"] + t["skipped"]
+            raise HTTPException(status_code=409,
+                                detail=f"已有一个任务正在进行（已处理 {done_n}/{t['total']}），请等它完成，或先停止它再继续")
+    attempted = {r["recipient"] for r in _db_query(
+        "SELECT DISTINCT recipient FROM emails WHERE task_id = %s AND user_id = %s",
+        (task_id, user_id))}
+    remaining = [e for e in payload["emails"] if e["to_email"] not in attempted]
+    skipped_done = len(payload["emails"]) - len(remaining)
+    if not remaining:
+        _db_exec("UPDATE send_tasks SET status = 'done' WHERE id = %s", (task_id,))
+        return {"success": True, "task_id": None, "remaining": 0,
+                "skipped_done": skipped_done, "message": "名单里的人都已经发过了，没有需要继续的"}
+    accounts = _load_user_accounts(user_id)
+    if not accounts:
+        raise HTTPException(status_code=400, detail="还没有发信账号，请先在账号区添加（云端保存）")
+    req = BatchTaskRequest(
+        emails=[EmailItem(**e) for e in remaining],
+        daily_cap=payload.get("daily_cap", 50),
+        interval_seconds=payload.get("interval_seconds", 0),
+        interval_max_seconds=payload.get("interval_max_seconds", 0),
+        link_enabled=payload.get("link_enabled", False),
+        link_url=payload.get("link_url", ""),
+        link_text=payload.get("link_text", ""),
+    )
+    req.user_id = user_id
+    req.accounts = accounts
+    new_id = _launch_task(user_id, req, background_tasks, continued_from=task_id)
+    _db_exec("UPDATE send_tasks SET status = 'continued' WHERE id = %s", (task_id,))
+    return {"success": True, "task_id": new_id, "remaining": len(remaining),
+            "skipped_done": skipped_done}
+
+
+@app.post("/api/tasks/{task_id}/terminate")
+async def terminate_task(task_id: str, authorization: Optional[str] = Header(default=None)):
+    """终止任务：任务还活着（在本进程内存里）就真停；只剩数据库里一行记录的
+    （已被重启打断的孤儿任务）就把状态标成已停止，别再永远挂着“进行中”。"""
+    user_id = _verify_user_id(authorization)
+    live = TASKS.get(task_id)
+    if live is not None and live.get("user_id") == user_id:
+        if live["status"] in ("running", "paused"):
+            live["status"] = "stopped"
+            _sync_task_db(live)
+        return {"success": True, "mode": "live", "status": live["status"]}
+    row = _task_row(task_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if row["status"] in ("running", "paused", "interrupted", "failed"):
+        _db_exec("UPDATE send_tasks SET status = 'stopped' WHERE id = %s", (task_id,))
+        return {"success": True, "mode": "record", "status": "stopped"}
+    return {"success": True, "mode": "record", "status": row["status"]}
+
+# ==========================================
 # 发信账号接口（云端保存，授权码加密；前端永远看不到明文）
 # ==========================================
 class AccountIn(BaseModel):
@@ -773,7 +942,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix5-task-ux"}
+    return {"v": "v5-fix6-resume-detail"}
 
 
 @app.get("/api/accounts")
