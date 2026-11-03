@@ -357,11 +357,17 @@
       }
       data.forEach(t => {
         const tr = document.createElement("tr");
+        const doneN = (t.sent || 0) + (t.failed || 0) + (t.skipped || 0);
+        const pct = t.total > 0 ? Math.round((doneN / t.total) * 100) : 0;
+        let statusCell = TASK_STATUS_LABEL[t.status] || t.status || "-";
+        if (t.status === "running" || t.status === "paused") {
+          statusCell += `<div style="margin-top:5px; background:#E7EEE9; border-radius:6px; height:8px; width:110px; overflow:hidden;"><div style="height:100%; width:${pct}%; background:#2D6A4F;"></div></div><div style="font-size:11px; color:#5E7267; margin-top:3px;">已处理 ${doneN}/${t.total} · ${pct}%</div>`;
+        }
         tr.innerHTML = `
           <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
           <td>${t.subject || "-"}</td>
           <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
-          <td>${TASK_STATUS_LABEL[t.status] || t.status || "-"}</td>
+          <td>${statusCell}</td>
         `;
         tbody.appendChild(tr);
       });
