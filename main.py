@@ -423,6 +423,21 @@ def _fetch_image_bytes(src: str):
     return None, None
 
 
+def _decode_data_uri(src: str):
+    """把 data:image/...;base64,... 解成 (bytes, subtype)；解不了返回 (None, None)。
+    粘贴进编辑器的图片是这种形式，Gmail 不显示 data 图，必须转成 cid 内嵌。"""
+    m = re.match(r"data:image/([a-zA-Z0-9.+-]+);base64,(.+)", src, re.S)
+    if not m:
+        return None, None
+    try:
+        data = base64.b64decode(m.group(2), validate=False)
+    except Exception:
+        return None, None
+    if not data or len(data) > 15 * 1024 * 1024:
+        return None, None
+    return data, m.group(1).lower()
+
+
 def inline_images(html_content: str):
     """把正文里的图片改成本封邮件的内嵌附件（cid:），返回 (新正文, [(cid, bytes, subtype)])。
     追踪像素不在此处理（它必须保持外链才能计数）——调用顺序上像素在内嵌之后才拼接。"""
@@ -431,11 +446,14 @@ def inline_images(html_content: str):
 
     def repl(m):
         prefix, quote, src = m.group(1), m.group(2), m.group(3)
-        if src.startswith("cid:") or src.startswith("data:"):
+        if src.startswith("cid:"):
             return m.group(0)
         if src in cid_map:
             return f"{prefix}{quote}cid:{cid_map[src]}{quote}"
-        data, subtype = _fetch_image_bytes(src)
+        if src.startswith("data:"):
+            data, subtype = _decode_data_uri(src)
+        else:
+            data, subtype = _fetch_image_bytes(src)
         if not data:
             return m.group(0)
         cid = f"img{len(images)}-{uuid.uuid4().hex[:10]}@mailtracker"
