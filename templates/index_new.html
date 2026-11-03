@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MailTracker — 看见每封邮件的下一步</title>
+  <title>MailTracker — 批量发邀约，打开看得见</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <style>
     :root {
       --ink: #060D18;
@@ -18,7 +19,7 @@
       --paper-70: rgba(247, 243, 236, 0.72);
       --paper-50: rgba(247, 243, 236, 0.5);
       --line: rgba(255, 255, 255, 0.14);
-      --glass: rgba(10, 22, 38, 0.55);
+      --glass: rgba(10, 22, 38, 0.62);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
@@ -29,19 +30,16 @@
       overflow-x: hidden;
     }
     a { text-decoration: none; color: inherit; }
-    .serif { font-family: 'Noto Serif SC', "Songti SC", serif; }
 
-    /* 视频背景 */
     .video-bg-container { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -2; overflow: hidden; pointer-events: none; }
     .video-bg { width: 100%; height: 100%; object-fit: cover; object-position: center bottom; }
     .video-overlay {
       position: fixed; inset: 0; z-index: -1; pointer-events: none;
-      background: linear-gradient(180deg, rgba(6, 13, 24, 0.42) 0%, rgba(6, 13, 24, 0.08) 38%, rgba(6, 13, 24, 0.55) 78%, var(--ink) 100%);
+      background: linear-gradient(180deg, rgba(6, 13, 24, 0.46) 0%, rgba(6, 13, 24, 0.12) 34%, rgba(6, 13, 24, 0.38) 62%, var(--ink) 88%);
     }
 
     .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 10; }
 
-    /* 顶栏 */
     header { height: 80px; display: flex; align-items: center; justify-content: space-between; }
     .brand { font-size: 18px; font-weight: 800; letter-spacing: 0.14em; display: flex; align-items: center; gap: 11px; text-transform: uppercase; }
     .brand-mark {
@@ -62,29 +60,12 @@
     .btn-nav-gold { background: linear-gradient(135deg, var(--gold-deep), var(--gold)); border: none; color: #241A05; }
     .btn-nav-gold:hover { filter: brightness(1.07); background: linear-gradient(135deg, var(--gold-deep), var(--gold)); }
 
-    /* 首屏：极简 */
-    .hero {
-      min-height: calc(100vh - 80px);
-      display: flex; flex-direction: column; justify-content: center; align-items: center;
-      text-align: center; padding-bottom: 30px;
-    }
-    .hero-tag {
-      font-size: 12px; letter-spacing: 0.34em; color: var(--gold);
-      font-weight: 700; text-transform: uppercase; margin-bottom: 28px;
-      display: inline-flex; align-items: center; gap: 14px;
-    }
-    .hero-tag::before, .hero-tag::after { content: ""; width: 34px; height: 1px; background: linear-gradient(90deg, transparent, var(--gold)); }
-    .hero-tag::after { background: linear-gradient(90deg, var(--gold), transparent); }
-    .hero-title {
-      font-size: clamp(44px, 6.4vw, 76px); font-weight: 900; line-height: 1.22;
-      letter-spacing: 0.02em; margin-bottom: 22px;
-      text-shadow: 0 6px 34px rgba(0, 0, 0, 0.65);
-    }
-    .hero-title .gold-text {
-      background: linear-gradient(120deg, #F6C177 10%, #E9B558 45%, #D9932C 90%);
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
-    .hero-desc { font-size: 16.5px; line-height: 1.8; color: var(--paper-70); max-width: 560px; margin-bottom: 38px; text-shadow: 0 2px 12px rgba(0,0,0,0.7); }
+    /* 首屏：短标题 + 大界面窗（借鉴 Linear 的构图） */
+    .hero { text-align: center; padding: 84px 0 0; }
+    .hero-kicker { font-size: 12px; letter-spacing: 0.32em; color: var(--gold); font-weight: 700; text-transform: uppercase; margin-bottom: 24px; }
+    .hero-title { font-size: clamp(38px, 5.4vw, 62px); font-weight: 800; line-height: 1.25; letter-spacing: 0.01em; margin-bottom: 18px; text-shadow: 0 6px 30px rgba(0, 0, 0, 0.6); white-space: nowrap; }
+    .hero-title .gold-text { background: linear-gradient(120deg, #F6C177 10%, #E9B558 45%, #D9932C 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero-desc { font-size: 16.5px; line-height: 1.8; color: var(--paper-70); max-width: 620px; margin: 0 auto 34px; text-shadow: 0 2px 12px rgba(0,0,0,0.7); }
     .hero-btns { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
     .btn-gold {
       padding: 15px 38px; border-radius: 999px; border: none; cursor: pointer;
@@ -102,31 +83,23 @@
       display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
     }
     .btn-glass:hover { background: rgba(255, 255, 255, 0.16); }
-    .hero-note { margin-top: 26px; font-size: 12.5px; letter-spacing: 0.18em; color: var(--paper-50); }
-    .scroll-cue { margin-top: 54px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--paper-50); font-size: 10.5px; letter-spacing: 0.3em; }
-    .scroll-cue .line { width: 1px; height: 44px; background: linear-gradient(180deg, var(--gold), transparent); animation: cueDrop 2.2s ease-in-out infinite; }
-    @keyframes cueDrop { 0%, 100% { transform: scaleY(0.55); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
+    .hero-note { margin-top: 22px; font-size: 12.5px; letter-spacing: 0.16em; color: var(--paper-50); }
 
-    /* 第二屏：新工作台样貌（深色实底，与内页同一套语言） */
-    .stage { background: linear-gradient(180deg, var(--ink) 0%, var(--ink-2) 100%); padding: 30px 0 84px; }
-    .stage-head { text-align: center; margin: 26px 0 40px; }
-    .stage-kicker { font-size: 11.5px; letter-spacing: 0.34em; color: var(--gold); font-weight: 700; text-transform: uppercase; margin-bottom: 14px; }
-    .stage-title { font-size: clamp(26px, 3.4vw, 36px); font-weight: 700; }
-    .stage-sub { margin-top: 10px; font-size: 14px; color: var(--paper-50); }
-
+    /* 界面窗：压住首屏下半，是构图的锚 */
     .mock {
-      max-width: 880px; margin: 0 auto;
+      max-width: 920px; margin: 56px auto 0;
       background: var(--glass); border: 1px solid var(--line); border-radius: 20px;
-      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      box-shadow: 0 34px 80px rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+      box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6);
       overflow: hidden; text-align: left;
+      transform: translateY(72px);
     }
     .mock-bar { display: flex; align-items: center; gap: 8px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
     .mock-bar .d { width: 11px; height: 11px; border-radius: 50%; }
     .mock-bar .title { margin-left: 8px; font-size: 13px; font-weight: 700; color: var(--paper-70); letter-spacing: 0.06em; }
-    .mock-body { padding: 22px 24px 24px; }
+    .mock-body { padding: 24px 26px 26px; }
     .mock-task-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .mock-task-name { font-size: 16px; font-weight: 800; }
+    .mock-task-name { font-size: 16.5px; font-weight: 800; }
     .mock-task-meta { font-size: 12.5px; color: var(--paper-50); }
     .mock-progress { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.1); margin: 14px 0 7px; overflow: hidden; }
     .mock-progress > div { height: 100%; width: 83%; border-radius: 99px; background: linear-gradient(90deg, var(--gold-deep), var(--gold)); box-shadow: 0 0 14px rgba(233, 181, 88, 0.55); }
@@ -139,10 +112,13 @@
     .chip-open { background: rgba(233, 181, 88, 0.16); color: var(--gold); border: 1px solid rgba(233, 181, 88, 0.4); }
     .chip-sent { background: rgba(255, 255, 255, 0.07); color: var(--paper-70); border: 1px solid rgba(255, 255, 255, 0.12); }
     .chip-run { background: rgba(255, 255, 255, 0.07); color: var(--paper-70); border: 1px solid rgba(255, 255, 255, 0.12); display: inline-flex; align-items: center; gap: 6px; }
-    .chip-run .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: cueDrop 1.4s ease-in-out infinite; }
+    .chip-run .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: pulseAnim 1.4s ease-in-out infinite; }
+    @keyframes pulseAnim { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 
-    .features { max-width: 880px; margin: 46px auto 0; display: flex; flex-direction: column; }
-    .feat { display: flex; gap: 18px; padding: 20px 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); align-items: flex-start; }
+    /* 第二段：功能行 */
+    .stage { background: linear-gradient(180deg, var(--ink) 0%, var(--ink-2) 100%); padding: 148px 0 80px; }
+    .features { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; }
+    .feat { display: flex; gap: 18px; padding: 22px 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); align-items: flex-start; }
     .feat:last-child { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
     .feat-icon {
       width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
@@ -152,9 +128,8 @@
     .feat h3 { font-size: 15.5px; font-weight: 800; margin-bottom: 4px; }
     .feat p { font-size: 13.5px; color: var(--paper-50); line-height: 1.65; }
 
-    footer { text-align: center; padding: 44px 0 52px; font-size: 12.5px; letter-spacing: 0.14em; color: rgba(247, 243, 236, 0.35); background: var(--ink-2); }
+    footer { text-align: center; padding: 42px 0 50px; font-size: 12.5px; letter-spacing: 0.14em; color: rgba(247, 243, 236, 0.35); background: var(--ink-2); }
 
-    /* 登录弹层 */
     #authOverlay {
       position: fixed; inset: 0; width: 100vw; height: 100vh;
       background: rgba(4, 8, 15, 0.6);
@@ -170,7 +145,7 @@
     }
     .auth-close { position: absolute; top: 16px; right: 18px; font-size: 20px; color: var(--paper-50); cursor: pointer; border: none; background: none; }
     .auth-close:hover { color: #fff; }
-    .auth-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .auth-card h2 { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
     .auth-card p { font-size: 13px; color: var(--paper-50); margin-bottom: 22px; }
     .auth-input {
       width: 100%; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.16);
@@ -190,10 +165,11 @@
     .auth-toggle a { color: var(--gold); cursor: pointer; font-weight: 700; margin-left: 4px; }
 
     @media (max-width: 860px) {
+      .hero { padding-top: 52px; }
+      .hero-title { white-space: normal; }
       .hero-btns { flex-direction: column; width: 100%; }
       .btn-gold, .btn-glass { width: 100%; justify-content: center; }
       header .btn-nav.plugin { display: none; }
-      .hero-tag { letter-spacing: 0.22em; }
     }
   </style>
 
@@ -318,11 +294,10 @@
   </div>
   <div class="video-overlay"></div>
 
-  <!-- 登录弹窗 -->
   <div id="authOverlay">
     <div class="auth-card">
       <button class="auth-close" onclick="closeAuthModal()">✕</button>
-      <h2 id="authTitle" class="serif">登录系统</h2>
+      <h2 id="authTitle">登录系统</h2>
       <p>看见每封邮件的下一步</p>
       <input type="email" id="authEmail" class="auth-input" placeholder="请输入你的邮箱地址" />
       <input type="password" id="authPassword" class="auth-input" placeholder="请输入密码 (至少6位)" />
@@ -353,26 +328,14 @@
     </header>
 
     <section class="hero">
-      <div class="hero-tag">达人邀约 · 批量触达</div>
-      <h1 class="hero-title serif">每一封邮件，<br><span class="gold-text">都有迹可循。</span></h1>
-      <p class="hero-desc">用你的 Gmail，批量发出达人合作邀约。<br>谁打开了、打开了几次——发出去之后的事，一眼看清。</p>
+      <div class="hero-kicker">MailTracker · 达人邀约触达</div>
+      <h1 class="hero-title">批量发邀约，<span class="gold-text">打开看得见。</span></h1>
+      <p class="hero-desc">用你的 Gmail 给达人批量发合作邀约。谁打开了、打开了几次，实时可查；<br>任务中途断了，回来接着发，不重发、不漏发。</p>
       <div class="hero-btns">
         <button onclick="navigateTo('/outreach')" class="btn-gold">发起批量触达</button>
         <button onclick="navigateTo('/dashboard')" class="btn-glass">进入数据大盘</button>
       </div>
       <div class="hero-note">多账号轮换 · 间隔可调 · 中断可续</div>
-      <div class="scroll-cue"><span>SCROLL</span><span class="line"></span></div>
-    </section>
-  </div>
-
-  <!-- 第二屏：新工作台样貌 -->
-  <div class="stage">
-    <div class="wrap">
-      <div class="stage-head">
-        <div class="stage-kicker">工作台 · 新样貌</div>
-        <div class="stage-title serif">发信、进度、打开，一套语言。</div>
-        <div class="stage-sub">这是接下来工作台三页要换上的设计——先在这里给你看个样。</div>
-      </div>
 
       <div class="mock">
         <div class="mock-bar">
@@ -394,7 +357,11 @@
           <div class="mock-row"><span class="who">Liam</span><span class="mail">liam.daily@…</span><span class="spacer"></span><span class="chip chip-run"><span class="pulse"></span>发送中</span></div>
         </div>
       </div>
+    </section>
+  </div>
 
+  <div class="stage">
+    <div class="wrap">
       <div class="features">
         <div class="feat">
           <div class="feat-icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#E9B558" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5 21 6.5l-4 4"/><path d="M3 12.5v-1a5 5 0 0 1 5-5h13"/><path d="m7 21.5-4-4 4-4"/><path d="M21 11.5v1a5 5 0 0 1-5 5H3"/></svg></div>
