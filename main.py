@@ -399,6 +399,44 @@ _IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=)(["\'])([^"\']+)\2', re.IGNORECAS
 _LOCAL_GIF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "kwoov-demo.gif")
 
 
+# Gmail 内部图片引用：正文若是从一封 Gmail 邮件里复制出来的，图片会带这种地址——
+# 它绑定复制者当时的登录会话，收件人打不开、服务器也取不到，必须在发送前清掉/换掉。
+_GMAIL_HOSTED_IMG_RE = re.compile(
+    r'https?://mail\.google\.com/mail/u/\d+\?[^\s"\']*?(?:attid|realattid)[^\s"\']*',
+    re.IGNORECASE,
+)
+
+
+def _product_gif_img_tag() -> str:
+    q = chr(34)
+    return ("<img src=" + q + "/static/kwoov-demo.gif" + q +
+            " alt=" + q + "Kwoov Product Demo" + q +
+            " style=" + q + "max-width:100%; border-radius:8px;" + q + ">")
+
+
+def sanitize_outbound_html(html_content: str) -> str:
+    """发送前清洗正文里来自 Gmail 的图片引用：
+    - alt 表明是产品 GIF 的（Kwoov Product Demo 等）→ 换成本站产品 GIF（随后会被转成内嵌附件）；
+    - 其余 Gmail 图（多为表情小图）→ 直接去掉 img 标签，避免收件人看到坏图。
+    必须在 inline_images 之前调用。"""
+    if not html_content or "mail.google.com" not in html_content:
+        return html_content or ""
+
+    def repl(m):
+        tag = m.group(0)
+        sm = _IMG_SRC_RE.search(tag)
+        src = sm.group(3) if sm else ""
+        if not _GMAIL_HOSTED_IMG_RE.search(src):
+            return tag
+        alt_m = re.search(r"alt=([\"'])(.*?)\1", tag, re.IGNORECASE | re.DOTALL)
+        alt = alt_m.group(2) if alt_m else ""
+        if "kwoov" in alt.lower() and ("demo" in alt.lower() or "gif" in alt.lower()):
+            return _product_gif_img_tag()
+        return ""
+
+    return re.sub(r"<img\b[^>]*>", repl, html_content, flags=re.IGNORECASE)
+
+
 def _fetch_image_bytes(src: str):
     """取图片字节：站内产品 GIF 用服务器本地原图；其他 http(s) 图片尝试下载（限时限量）；失败返回 (None, None)。"""
     if "kwoov-demo.gif" in src and os.path.exists(_LOCAL_GIF_PATH):
@@ -467,7 +505,8 @@ def inline_images(html_content: str):
 def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], content: Optional[str] = None) -> str:
     if content is None:
         content = item.content
-    # 先内嵌正文图片，再拼追踪像素（像素必须保持远程地址）
+    # 先清掉 Gmail 内部图片引用，再内嵌正文图片，最后拼追踪像素（像素必须保持远程地址）
+    content = sanitize_outbound_html(content)
     content, images = inline_images(content)
     if email_id:
         tracking_url = f"{BASE_URL}/track/{email_id}"
@@ -717,7 +756,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix3-jwks-noapikey"}
+    return {"v": "v5-fix4-gmail-img-sanitize"}
 
 
 @app.get("/api/accounts")
