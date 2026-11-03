@@ -694,6 +694,8 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
         if t.get("user_id") == user_id and t.get("status") in ("running", "paused"):
             done_n = t["sent"] + t["failed"] + t["skipped"]
             raise HTTPException(status_code=409, detail=f"已有一个任务正在进行（已处理 {done_n}/{t['total']}），请等它完成，或先停止它再发新任务")
+    if req.interval_seconds <= 0:
+        raise HTTPException(status_code=400, detail="发送间隔不能为 0：每封之间必须留间隔，请把最少间隔填成大于 0 的分钟数")
     if not req.emails:
         raise HTTPException(status_code=400, detail="名单为空")
     if len(req.emails) > MAX_EMAILS_PER_TASK:
@@ -978,7 +980,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix6-resume-detail"}
+    return {"v": "v5-fix7-interval-nonzero"}
 
 
 @app.get("/api/accounts")
