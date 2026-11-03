@@ -1030,7 +1030,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix8-search-labels"}
+    return {"v": "v5-fix9-home-preview"}
 
 
 @app.get("/api/accounts")
@@ -1105,6 +1105,12 @@ async def outreach_page(request: Request):
 @app.get("/progress", response_class=HTMLResponse)
 async def progress_page(request: Request):
     return _page_with_sender_cookie("progress.html", request)
+
+
+@app.get("/preview-home", response_class=HTMLResponse)
+async def preview_home_page(request: Request):
+    """新版首页设计稿预览（站长确认后再替换正式首页）。"""
+    return _serve_page_file("index_new.html")
 
 # ==========================================
 # 追踪像素端点
