@@ -320,6 +320,10 @@
     .modal-btn-secondary { background: #F1F5F2; color: #5E7267; border: 1px solid rgba(36, 51, 44, 0.08); }
     .modal-btn-secondary:hover { background: #E4ECE6; }
     .sub-nav { display: flex; gap: 6px; margin: 16px 0 8px; background: #E7EEE9; padding: 6px; border-radius: 14px; }
+    .task-act-btn { border: 1.5px solid #B7D3C0; background: #fff; color: #2D6A4F; border-radius: 8px; padding: 3px 9px; font-size: 12px; font-weight: 700; cursor: pointer; margin: 1px 0; }
+    .task-act-btn:hover { background: #EAF4EE; }
+    .task-act-btn.danger { border-color: #E5B4B4; color: #B3261E; }
+    .task-act-btn.danger:hover { background: #FDECEC; }
     .sub-tab { flex: 1; text-align: center; padding: 11px 0; border-radius: 10px; font-size: 15px; font-weight: 700; color: #46604F; text-decoration: none; transition: 0.2s; }
     .sub-tab:hover { background: #DCE7DE; }
     .sub-tab.active { background: #2D6A4F; color: #FFF; box-shadow: 0 2px 8px rgba(45,106,79,0.35); }
@@ -343,7 +347,7 @@
       setInterval(loadTaskList, 5000);
     }
 
-    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已停止", failed: "❌ 失败" };
+    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已停止", failed: "❌ 失败", interrupted: "⚠️ 已中断", continued: "↪️ 已续发" };
 
     async function loadTaskList() {
       const tbody = document.getElementById("taskListBody");
@@ -352,7 +356,7 @@
       if (error) return;
       tbody.innerHTML = "";
       if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="color:#78909C;">还没有发送任务记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="color:#78909C;">还没有发送任务记录</td></tr>';
         return;
       }
       data.forEach(t => {
@@ -363,14 +367,94 @@
         if (t.status === "running" || t.status === "paused") {
           statusCell += `<div style="margin-top:5px; background:#E7EEE9; border-radius:6px; height:8px; width:110px; overflow:hidden;"><div style="height:100%; width:${pct}%; background:#2D6A4F;"></div></div><div style="font-size:11px; color:#5E7267; margin-top:3px;">已处理 ${doneN}/${t.total} · ${pct}%</div>`;
         }
+        let acts = `<button type="button" class="task-act-btn" onclick="event.stopPropagation(); openTaskDetail('${t.id}')">明细</button>`;
+        if (["interrupted", "failed", "stopped", "done"].includes(t.status)) {
+          acts += ` <button type="button" class="task-act-btn" onclick="event.stopPropagation(); continueTask('${t.id}')">继续发送</button>`;
+        }
+        if (["running", "paused", "interrupted", "failed"].includes(t.status)) {
+          acts += ` <button type="button" class="task-act-btn danger" onclick="event.stopPropagation(); terminateTask('${t.id}')">终止</button>`;
+        }
         tr.innerHTML = `
           <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
           <td>${t.subject || "-"}</td>
           <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
           <td>${statusCell}</td>
+          <td style="white-space:nowrap;">${acts}</td>
         `;
+        tr.style.cursor = "pointer";
+        tr.title = "点击查看这一批发给了哪些人";
+        tr.addEventListener("click", () => openTaskDetail(t.id));
         tbody.appendChild(tr);
       });
+    }
+
+    async function authHeaders() {
+      const { data: { session } } = await client.auth.getSession();
+      const h = { "Content-Type": "application/json" };
+      if (session && session.access_token) h["Authorization"] = "Bearer " + session.access_token;
+      return h;
+    }
+
+    const RECIP_STATUS_LABEL = { sent: "✅ 已发送", failed: "❌ 发送失败", pending: "❔ 状态不明（发送时中断）", unsent: "⏳ 未发送" };
+
+    async function openTaskDetail(taskId) {
+      const modal = document.getElementById("taskDetailModal");
+      const body = document.getElementById("taskDetailBody");
+      const title = document.getElementById("taskDetailTitle");
+      modal.style.display = "flex";
+      title.innerText = "📋 任务明细";
+      body.innerHTML = '<div style="color:#78909C; padding:10px 0;">正在加载…</div>';
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/detail", { headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { body.innerHTML = '<div style="color:#C62828;">' + (data.detail || "加载失败") + '</div>'; return; }
+        title.innerText = "📋 " + (data.subject || "任务明细");
+        let html = "";
+        if (data.legacy) {
+          html += '<div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:8px 10px; font-size:12px; color:#795548; margin-bottom:10px;">这是旧版本创建的任务，当时没有保存完整名单，下面是按时间范围匹配到的发送记录，仅供参考。</div>';
+        }
+        if (!data.recipients || data.recipients.length === 0) {
+          html += '<div style="color:#78909C;">没有查到这一批的收件人记录。</div>';
+        } else {
+          html += '<table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr style="text-align:left; color:#546E7A;"><th style="padding:5px;">收件人</th><th style="padding:5px;">状态</th><th style="padding:5px;">发送时间</th><th style="padding:5px;">打开</th></tr></thead><tbody>';
+          data.recipients.forEach(r => {
+            html += `<tr style="border-top:1px solid #EEF3F0;"><td style="padding:5px;">${r.email}</td><td style="padding:5px;">${RECIP_STATUS_LABEL[r.status] || r.status}</td><td style="padding:5px;">${r.send_time ? new Date(r.send_time).toLocaleString() : "-"}</td><td style="padding:5px;">${r.open_count > 0 ? "👀 ×" + r.open_count : "-"}</td></tr>`;
+          });
+          html += '</tbody></table>';
+        }
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<div style="color:#C62828;">加载失败：' + e + '</div>';
+      }
+    }
+
+    function closeTaskDetail() {
+      document.getElementById("taskDetailModal").style.display = "none";
+    }
+
+    async function continueTask(taskId) {
+      if (!confirm("继续发送这个任务？已经发过（或发送状态不明）的人会自动跳过，不会重复发。")) return;
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/continue", { method: "POST", headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.detail || "继续失败"); return; }
+        if (data.task_id) {
+          alert("已开始继续发送：跳过 " + data.skipped_done + " 位已发过的人，剩余 " + data.remaining + " 位正在发送，去「写信发送」页可以看实时进度。");
+        } else {
+          alert(data.message || "没有需要继续发送的人了。");
+        }
+        loadTaskList();
+      } catch (e) { alert("继续失败：" + e); }
+    }
+
+    async function terminateTask(taskId) {
+      if (!confirm("终止这个任务？终止后没发的人不会再发（之后还可以用「继续发送」捡起来）。")) return;
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/terminate", { method: "POST", headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.detail || "终止失败"); return; }
+        loadTaskList();
+      } catch (e) { alert("终止失败：" + e); }
     }
 
     window.addEventListener('DOMContentLoaded', initAuth);
@@ -400,11 +484,21 @@
         <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
           <thead><tr style="text-align:left; color:#546E7A;">
             <th style="padding:6px;">开始时间</th><th style="padding:6px;">主题</th><th style="padding:6px;">总数</th>
-            <th style="padding:6px;">已发</th><th style="padding:6px;">失败</th><th style="padding:6px;">跳过</th><th style="padding:6px;">状态</th>
+            <th style="padding:6px;">已发</th><th style="padding:6px;">失败</th><th style="padding:6px;">跳过</th><th style="padding:6px;">状态</th><th style="padding:6px;">操作</th>
           </tr></thead>
           <tbody id="taskListBody"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <div id="taskDetailModal" style="display:none; position:fixed; inset:0; background:rgba(27,43,36,.45); z-index:2000; align-items:flex-start; justify-content:center; overflow-y:auto; padding:30px 12px;">
+    <div style="background:#fff; border-radius:16px; max-width:720px; width:100%; padding:22px; box-shadow:0 18px 50px rgba(27,67,50,.25);">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div id="taskDetailTitle" style="font-size:16px; font-weight:800; color:#1B4332;">📋 任务明细</div>
+        <button type="button" class="task-act-btn" onclick="closeTaskDetail()">✕ 关闭</button>
+      </div>
+      <div id="taskDetailBody" style="margin-top:12px; max-height:60vh; overflow-y:auto;"></div>
     </div>
   </div>
 </body>
