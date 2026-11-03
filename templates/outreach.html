@@ -519,6 +519,50 @@
       box.style.display = "block";
     }
 
+    function addManualRecipients() {
+      const ta = document.getElementById("manualRecipients");
+      const status = document.getElementById("manualStatus");
+      const lines = (ta.value || "").split(/\r?\n/);
+      const emailReg = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+      const existing = new Set(parsedRecipients.map(r => String(r.email || r.Email || r["邮箱"] || "").trim().toLowerCase()).filter(Boolean));
+      let added = 0, dup = 0;
+      const badLines = [];
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+        const m = line.match(emailReg);
+        if (!m) { badLines.push(raw); continue; }
+        const email = m[0];
+        const key = email.toLowerCase();
+        if (existing.has(key)) { dup++; continue; }
+        if (parsedRecipients.length >= 1000) { badLines.push(raw); continue; }
+        let name = line.replace(email, "").replace(/[<>"',，、;；\t]/g, " ").replace(/\s+/g, " ").trim();
+        parsedRecipients.push({ name: name, email: email });
+        existing.add(key);
+        added++;
+      }
+      ta.value = badLines.join("\n");
+      renderPreview();
+      updateRealtimePreview();
+      let msg = `已添加 ${added} 位到名单（当前共 ${parsedRecipients.length} 位）`;
+      if (dup) msg += `；跳过重复 ${dup} 位`;
+      if (badLines.length) msg += `；还有 ${badLines.length} 行没认出邮箱，已留在框里，改好再点添加`;
+      status.innerText = msg;
+    }
+
+    function clearRecipients() {
+      if (parsedRecipients.length && !confirm(`确定清空当前名单（共 ${parsedRecipients.length} 位）吗？`)) return;
+      parsedRecipients = [];
+      importTruncated = false;
+      document.getElementById("uploadBadge").style.display = "none";
+      document.getElementById("fileDropzone").classList.remove("uploaded");
+      document.getElementById("excelFileInput").value = "";
+      document.getElementById("manualStatus").innerText = "";
+      renderPreview();
+      document.getElementById("uploadInfo").innerText = "名单已清空，可重新导入表格或手动添加。";
+      updateRealtimePreview();
+    }
+
     function updateRealtimePreview() {
       const previewCard = document.getElementById("previewBox");
       if (!parsedRecipients || parsedRecipients.length === 0) {
@@ -752,7 +796,7 @@
         return;
       }
       if (!parsedRecipients || parsedRecipients.length === 0) {
-        alert("请先上传包含收件人邮箱的表格！");
+        alert("请先导入表格、或在名单区手动添加收件人！");
         return;
       }
 
@@ -914,7 +958,7 @@
     <!-- 2. 表格导入与预览 -->
     <div class="card">
       <div class="section-title">
-        <span>📁 导入达人 / 客户名单</span>
+        <span>📁 收件人名单（导入表格 / 手动添加）</span>
       </div>
       <div id="fileDropzone" class="dropzone" onclick="document.getElementById('excelFileInput').click()">
         <p style="font-size:14px; font-weight:600; color:#2D6A4F;">点击此处选择文件，或直接拖拽表格到这里</p>
@@ -924,6 +968,16 @@
       </div>
       <div id="uploadInfo" style="margin-top:12px; font-size:13px; color:#5E7267;"></div>
       <div id="tableBox" class="table-wrapper" style="display:none;"></div>
+      <div style="border-top:1px dashed rgba(36,51,44,0.12); margin-top:14px; padding-top:14px;">
+        <label class="form-label">✍️ 手动添加（不用表格，一行一位）</label>
+        <textarea id="manualRecipients" class="form-textarea" rows="4" style="width:100%;" placeholder="每行一位，例如：&#10;张三，zhangsan@example.com&#10;也可以只写邮箱：lisi@example.com"></textarea>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+          <button type="button" class="btn-add-account" style="height:38px; padding:0 16px;" onclick="addManualRecipients()">➕ 添加到名单</button>
+          <button type="button" class="btn-add-account" style="height:38px; padding:0 16px;" onclick="clearRecipients()">🗑 清空名单</button>
+          <span id="manualStatus" class="help-hint" style="margin:0;"></span>
+        </div>
+        <span class="help-hint">手动添加的人和表格导入的人在同一份名单里，一起发送；重复邮箱会自动跳过。只发一两个人时用这个最方便，不用做表格。</span>
+      </div>
     </div>
 
     <!-- 3. 内容与变量定制 -->
