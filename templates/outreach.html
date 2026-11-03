@@ -669,7 +669,8 @@
 
     function insertProductLink() {
       const url = (document.getElementById("linkUrlInput")?.value || "").trim();
-      const text = document.getElementById("linkTextInput")?.value || "";
+      // 链接文字留白时，用链接地址本身当文字——否则会插进一个没有文字的空链接，收件人看不见也点不到
+      const text = (document.getElementById("linkTextInput")?.value || "").trim() || url;
       if (!/^https?:\/\//i.test(url)) { alert("链接地址需以 http:// 或 https:// 开头"); return; }
       closeLinkModal();
       insertHtmlAtCursor(`<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>`);
@@ -1062,11 +1063,11 @@
       <div class="modal-desc">链接会插到正文光标处，显示为一行蓝色可点击文字（就是收件人看到的样子）。想换位置：先删掉正文里那行，再把光标挪到新位置重新插入。</div>
       <div class="form-group" style="text-align:left;">
         <label class="form-label">链接地址</label>
-        <input type="text" id="linkUrlInput" class="form-input" value="https://shop.tiktok.com/us/pdp/1732256087876277185" autocomplete="off" />
+        <input type="text" id="linkUrlInput" class="form-input" placeholder="粘贴你的链接地址，如 https://…" autocomplete="off" />
       </div>
       <div class="form-group" style="text-align:left;">
         <label class="form-label">链接文字</label>
-        <input type="text" id="linkTextInput" class="form-input" value="👉 See it on TikTok Shop — already 2.9K+ sold ✨" autocomplete="off" />
+        <input type="text" id="linkTextInput" class="form-input" placeholder="链接文字，可留空（留空就直接显示链接地址）" autocomplete="off" />
       </div>
       <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
         <button type="button" class="btn-add-account" onclick="insertProductLink()">插入到正文</button>
@@ -1095,8 +1096,7 @@
       </div>
 
       <div class="modal-actions">
-        <button class="modal-btn modal-btn-secondary" onclick="closeReportModal()">留在本页</button>
-        <a href="/dashboard" class="modal-btn modal-btn-primary">📊 前往追踪大盘</a>
+        <button class="modal-btn modal-btn-primary" onclick="closeReportModal()">好的</button>
       </div>
     </div>
   </div>
