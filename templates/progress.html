@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>批量触达工作台 — MailTracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background-color: #F3F6F4;
+      color: #202D26;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 36px 24px 80px;
+    }
+    .header-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .title {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #17221C;
+    }
+    .nav-links { display: flex; gap: 8px; }
+    .nav-btn {
+      text-decoration: none;
+      padding: 7px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5E7267;
+      background: #FFFFFF;
+      border: 1px solid rgba(36, 51, 44, 0.1);
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .nav-btn:hover { background: #EAEFEA; color: #17221C; }
+    .nav-btn.active {
+      background: #2D6A4F;
+      color: #FFFFFF;
+      border-color: #2D6A4F;
+    }
+
+    .card {
+      background: #FFFFFF;
+      border-radius: 18px;
+      padding: 28px;
+      border: 1px solid rgba(36, 51, 44, 0.06);
+      box-shadow: 0 4px 20px rgba(36, 51, 44, 0.03);
+      margin-bottom: 24px;
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #17221C;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .btn-add-account {
+      padding: 5px 12px;
+      background: rgba(45, 106, 79, 0.1);
+      border: 1px solid rgba(45, 106, 79, 0.2);
+      border-radius: 8px;
+      color: #2D6A4F;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .btn-add-account:hover { background: rgba(45, 106, 79, 0.2); }
+
+    .account-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 40px;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .btn-del-account {
+      height: 38px;
+      border: none;
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
+    }
+    .btn-del-account:hover { background: rgba(239, 68, 68, 0.2); }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #5E7267;
+    }
+    .form-input, .form-textarea {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(36, 51, 44, 0.12);
+      background: #FAFBF9;
+      font-size: 13px;
+      color: #202D26;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus, .form-textarea:focus {
+      border-color: #2D6A4F;
+      background: #FFFFFF;
+    }
+    .form-textarea { resize: vertical; min-height: 130px; font-family: inherit; line-height: 1.6; }
+    .rich-editor { resize: vertical; min-height: 180px; max-height: 520px; overflow-y: auto; font-family: inherit; line-height: 1.6; background: #fff; cursor: text; }
+    .rich-editor:empty::before { content: attr(data-placeholder); color: #9db3a8; pointer-events: none; }
+    .rich-editor img { max-width: 100%; border-radius: 8px; }
+    .editor-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .editor-tool-btn { height: 30px; padding: 0 12px; font-size: 12px; border-radius: 8px; border: 1px solid rgba(36,51,44,0.18); background: #F4F8F5; color: #33473C; cursor: pointer; }
+    .editor-tool-btn:hover { background: #E6F0E9; }
+
+    .dropzone {
+      border: 2px dashed rgba(45, 106, 79, 0.3);
+      background: #FAFBF9;
+      border-radius: 12px;
+      padding: 26px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      background: #EAF3EE;
+      border-color: #2D6A4F;
+      transform: translateY(-1px);
+    }
+    .dropzone.uploaded {
+      border: 2px solid #2D6A4F;
+      background: #F2F8F4;
+    }
+
+    .uploaded-badge {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 8px 14px;
+      background: rgba(45, 106, 79, 0.1);
+      border-radius: 8px;
+      color: #2D6A4F;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .table-wrapper {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 14px;
+      border: 1px solid rgba(36, 51, 44, 0.08);
+      border-radius: 10px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    th { background: #F8FAF9; padding: 10px 12px; color: #5E7267; position: sticky; top: 0; }
+    td { padding: 8px 12px; border-top: 1px solid rgba(36, 51, 44, 0.05); color: #202D26; }
+
+    .preview-box {
+      margin-top: 16px;
+      padding: 16px 20px;
+      background: #F8FAF9;
+      border: 1px solid rgba(45, 106, 79, 0.15);
+      border-radius: 12px;
+      display: none;
+    }
+    .preview-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #2D6A4F;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .preview-subject {
+      font-size: 13px;
+      font-weight: 600;
+      color: #17221C;
+      margin-bottom: 6px;
+    }
+    .preview-content {
+      font-size: 12px;
+      color: #4A5B52;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      border-top: 1px dashed rgba(36, 51, 44, 0.1);
+      padding-top: 8px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 14px 0;
+      background: #2D6A4F;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(45, 106, 79, 0.25);
+      transition: 0.2s;
+      margin-top: 16px;
+    }
+    .btn-submit:hover { background: #245841; }
+    .btn-submit:disabled { background: #A3B8AD; cursor: not-allowed; }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 8px;
+      background: #EAEFEA;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 14px;
+      display: none;
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: #2D6A4F;
+      transition: width 0.3s ease;
+    }
+
+    .help-hint {
+      font-size: 11px;
+      color: #8C9C92;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 19, 0.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    .modal-card {
+      background: #FFFFFF;
+      width: 90%;
+      max-width: 460px;
+      border-radius: 20px;
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+      animation: popIn 0.3s ease;
+    }
+    @keyframes popIn {
+      from { transform: scale(0.9); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .modal-icon { font-size: 44px; margin-bottom: 12px; }
+    .modal-title { font-size: 19px; font-weight: 700; color: #17221C; margin-bottom: 8px; }
+    .modal-desc { font-size: 13px; color: #5E7267; line-height: 1.6; margin-bottom: 24px; }
+    .report-stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .report-stat-item {
+      background: #F8FAF9;
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid rgba(36, 51, 44, 0.05);
+    }
+    .report-stat-num { font-size: 22px; font-weight: 800; color: #2D6A4F; }
+    .report-stat-num.failed { color: #E05656; }
+    .report-stat-label { font-size: 11px; color: #8C9C92; margin-top: 2px; }
+    .modal-actions { display: flex; gap: 10px; }
+    .modal-btn {
+      flex: 1;
+      padding: 12px 0;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
+    }
+    .modal-btn-primary { background: #2D6A4F; color: #FFFFFF; border: none; }
+    .modal-btn-primary:hover { background: #245841; }
+    .modal-btn-secondary { background: #F1F5F2; color: #5E7267; border: 1px solid rgba(36, 51, 44, 0.08); }
+    .modal-btn-secondary:hover { background: #E4ECE6; }
+    .sub-nav { display: flex; gap: 8px; margin: 14px 0 6px; }
+    .sub-tab { padding: 7px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #5E7267; background: #EDF2EE; text-decoration: none; border: 1px solid rgba(36,51,44,0.06); transition: 0.2s; }
+    .sub-tab:hover { background: #E2EAE4; }
+    .sub-tab.active { background: #2D6A4F; color: #FFF; border-color: #2D6A4F; }
+  </style>
+  <script>
+    const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_yVVewqmlY0RGqNX87n_j_Q_oT47OEzK";
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let currentUser = null;
+
+    async function initAuth() {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session || !session.user) {
+        alert("请先登录账号后进入工作台！");
+        window.location.href = "/";
+        return;
+      }
+      currentUser = session.user;
+      loadTaskList();
+      setInterval(loadTaskList, 5000);
+    }
+
+    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已停止", failed: "❌ 失败" };
+
+    async function loadTaskList() {
+      const tbody = document.getElementById("taskListBody");
+      if (!tbody || !currentUser) return;
+      const { data, error } = await client.from("send_tasks").select("*").order("created_at", { ascending: false }).limit(20);
+      if (error) return;
+      tbody.innerHTML = "";
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:#78909C;">还没有发送任务记录</td></tr>';
+        return;
+      }
+      data.forEach(t => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
+          <td>${t.subject || "-"}</td>
+          <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
+          <td>${TASK_STATUS_LABEL[t.status] || t.status || "-"}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', initAuth);
+  </script>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header-box">
+      <div class="title">🚀 批量触达工作台</div>
+      <div class="nav-links">
+        <a href="/" class="nav-btn">🌊 官网首页</a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
+        <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
+      </div>
+    </div>
+
+    <div class="sub-nav">
+      <a href="/outreach" class="sub-tab">✉️ 写信发送</a>
+      <a href="/progress" class="sub-tab active">📋 发送进度</a>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span>📋 发送任务（进行中与历史记录）</span></div>
+      <span class="help-hint">每批发送都会记在这里：进行中的每 5 秒自动刷新，完成的长期保留，服务器重启也不会丢。</span>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+          <thead><tr style="text-align:left; color:#546E7A;">
+            <th style="padding:6px;">开始时间</th><th style="padding:6px;">主题</th><th style="padding:6px;">总数</th>
+            <th style="padding:6px;">已发</th><th style="padding:6px;">失败</th><th style="padding:6px;">跳过</th><th style="padding:6px;">状态</th>
+          </tr></thead>
+          <tbody id="taskListBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

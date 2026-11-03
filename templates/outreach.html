@@ -320,6 +320,10 @@
     .modal-btn-primary:hover { background: #245841; }
     .modal-btn-secondary { background: #F1F5F2; color: #5E7267; border: 1px solid rgba(36, 51, 44, 0.08); }
     .modal-btn-secondary:hover { background: #E4ECE6; }
+    .sub-nav { display: flex; gap: 8px; margin: 14px 0 6px; }
+    .sub-tab { padding: 7px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #5E7267; background: #EDF2EE; text-decoration: none; border: 1px solid rgba(36,51,44,0.06); transition: 0.2s; }
+    .sub-tab:hover { background: #E2EAE4; }
+    .sub-tab.active { background: #2D6A4F; color: #FFF; border-color: #2D6A4F; }
   </style>
 
   <script>
@@ -340,8 +344,6 @@
       }
       currentUser = session.user;
       loadCloudAccounts();
-      loadTaskList();
-      setInterval(loadTaskList, 5000);
       setupDragAndDrop();
       setupRichEditor();
       loadCopywritingList();
@@ -432,30 +434,6 @@
         await fetch(`/api/accounts/${id}`, { method: "DELETE", headers: await apiHeaders() });
         await loadCloudAccounts();
       } catch (e) {}
-    }
-
-    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已停止", failed: "❌ 失败" };
-
-    async function loadTaskList() {
-      const tbody = document.getElementById("taskListBody");
-      if (!tbody || !currentUser) return;
-      const { data, error } = await client.from("send_tasks").select("*").order("created_at", { ascending: false }).limit(20);
-      if (error) return;
-      tbody.innerHTML = "";
-      if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="color:#78909C;">还没有发送任务记录</td></tr>';
-        return;
-      }
-      data.forEach(t => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
-          <td>${t.subject || "-"}</td>
-          <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
-          <td>${TASK_STATUS_LABEL[t.status] || t.status || "-"}</td>
-        `;
-        tbody.appendChild(tr);
-      });
     }
 
     function handleFile(e) {
@@ -899,7 +877,6 @@
           document.getElementById("taskControls").style.display = "none";
           currentTaskId = null;
           openReportModal(t.sent, t.failed);
-          loadTaskList();
           sendBtn.disabled = false;
           sendBtn.innerText = "🚀 开始批量触达";
           progContainer.style.display = "none";
@@ -939,6 +916,11 @@
         <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
         <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
       </div>
+    </div>
+
+    <div class="sub-nav">
+      <a href="/outreach" class="sub-tab active">✉️ 写信发送</a>
+      <a href="/progress" class="sub-tab">📋 发送进度</a>
     </div>
 
     <!-- 1. 发信账号（云端） -->
@@ -1060,20 +1042,6 @@
     </div>
   </div>
 
-    <!-- 发送任务列表（进行中 + 历史，存云端） -->
-    <div class="card">
-      <div class="section-title"><span>📋 发送任务（进行中与历史记录）</span></div>
-      <span class="help-hint">每批发送都会记在这里：进行中的每 5 秒自动刷新，完成的长期保留，服务器重启也不会丢。</span>
-      <div style="overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
-          <thead><tr style="text-align:left; color:#546E7A;">
-            <th style="padding:6px;">开始时间</th><th style="padding:6px;">主题</th><th style="padding:6px;">总数</th>
-            <th style="padding:6px;">已发</th><th style="padding:6px;">失败</th><th style="padding:6px;">跳过</th><th style="padding:6px;">状态</th>
-          </tr></thead>
-          <tbody id="taskListBody"></tbody>
-        </table>
-      </div>
-    </div>
 
   <div id="reportModal" class="modal-overlay">
     <div class="modal-card">
