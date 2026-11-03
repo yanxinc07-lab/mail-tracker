@@ -802,6 +802,13 @@
         return;
       }
 
+      const ivMin = parseFloat(document.getElementById("intervalMin")?.value) || 0;
+      const ivMax = parseFloat(document.getElementById("intervalMax")?.value) || 0;
+      if (ivMin <= 0 || ivMax <= 0) {
+        alert("发送间隔不能为 0：最少和最多都要填大于 0 的分钟数（可以填小数，如 0.5 = 30 秒）。");
+        return;
+      }
+
       const sendBtn = document.getElementById("btnStartOutreach");
       const progContainer = document.getElementById("progressContainer");
       const progBar = document.getElementById("progressBar");
@@ -1059,12 +1066,12 @@
         <label class="form-label">⏱ 每封发送间隔（分钟）</label>
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
           <span style="font-size:13px; color:#5E7267;">最少</span>
-          <input type="number" id="intervalMin" class="form-input" style="width:100px;" value="1" min="0" step="0.1" />
+          <input type="number" id="intervalMin" class="form-input" style="width:100px;" value="1" min="0.1" step="0.1" />
           <span style="font-size:13px; color:#5E7267;">～ 最多</span>
-          <input type="number" id="intervalMax" class="form-input" style="width:100px;" value="2" min="0" step="0.1" />
+          <input type="number" id="intervalMax" class="form-input" style="width:100px;" value="2" min="0.1" step="0.1" />
           <span style="font-size:13px; color:#5E7267;">分钟</span>
         </div>
-        <span class="help-hint">每发一封，随机等这么久再发下一封（可以填小数，0.5 = 30 秒）。两个都填 0 = 不间隔连着发，节奏太猛对账号不好，不建议。</span>
+        <span class="help-hint">每发一封，随机等这么久再发下一封（可以填小数，0.5 = 30 秒）。间隔不能填 0——不间隔连着发太伤账号，已禁止。</span>
       </div>
 
       <button id="btnStartOutreach" class="btn-submit" onclick="startBatchSend()">🚀 开始批量触达</button>
