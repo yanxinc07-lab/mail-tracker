@@ -1,5 +1,6 @@
 import os
 import re
+import random
 import html as html_lib
 import time
 import uuid
@@ -112,6 +113,7 @@ class BatchTaskRequest(BaseModel):
     emails: List[EmailItem]
     daily_cap: int = 50
     interval_seconds: float = 0
+    interval_max_seconds: float = 0
     # 商品链接行拼装参数（发送前对每封正文拼装一次，默认关闭）
     link_enabled: bool = False
     link_url: str = DEFAULT_LINK_URL
@@ -585,10 +587,15 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
 
             if (idx + 1) % 10 == 0:
                 _sync_task_db(task)
+            gap = 0.0
             if req.interval_seconds and req.interval_seconds > 0:
+                lo = float(req.interval_seconds)
+                hi = float(req.interval_max_seconds) if req.interval_max_seconds and float(req.interval_max_seconds) > lo else lo
+                gap = random.uniform(lo, hi)
+            if gap > 0:
                 slept = 0.0
-                while slept < req.interval_seconds and task["status"] not in ("stopped",):
-                    time.sleep(min(0.2, req.interval_seconds - slept))
+                while slept < gap and task["status"] not in ("stopped",):
+                    time.sleep(min(0.2, gap - slept))
                     slept += 0.2
                     while task["status"] == "paused":
                         time.sleep(0.2)
