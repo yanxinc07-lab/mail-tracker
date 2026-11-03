@@ -642,8 +642,8 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
                 acct_stat["failed"] += 1
                 task["errors"].append({"to": item.to_email, "account": chosen.email, "error": err})
 
-            if (idx + 1) % 10 == 0:
-                _sync_task_db(task)
+            # 每封都同步一次计数：进度页读的是数据库，这样它和发信页看到的实时进度一致（当前量级下每封一次小更新无压力）
+            _sync_task_db(task)
             gap = 0.0
             if req.interval_seconds and req.interval_seconds > 0:
                 lo = float(req.interval_seconds)
@@ -671,6 +671,11 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
 async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundTasks,
                             authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
+    # 硬闸：同一用户已有进行中（或暂停）的任务时拒绝再建，防止重复点发送导致双任务同号并发、名单重叠重复投递
+    for t in TASKS.values():
+        if t.get("user_id") == user_id and t.get("status") in ("running", "paused"):
+            done_n = t["sent"] + t["failed"] + t["skipped"]
+            raise HTTPException(status_code=409, detail=f"已有一个任务正在进行（已处理 {done_n}/{t['total']}），请等它完成，或先停止它再发新任务")
     if not req.emails:
         raise HTTPException(status_code=400, detail="名单为空")
     if len(req.emails) > MAX_EMAILS_PER_TASK:
@@ -719,6 +724,18 @@ def _owned_task(task_id: str, authorization: Optional[str]) -> dict:
     return task
 
 
+@app.get("/api/tasks/current")
+async def get_current_task(authorization: Optional[str] = Header(default=None)):
+    """返回当前用户正在进行（或暂停）的最新任务，供发信页重进时把实时进度接回来；没有则 task_id 为 null。"""
+    user_id = _verify_user_id(authorization)
+    mine = [t for t in TASKS.values()
+            if t.get("user_id") == user_id and t.get("status") in ("running", "paused")]
+    if not mine:
+        return {"task_id": None}
+    t = max(mine, key=lambda x: x.get("created_at") or "")
+    return _public_task(t)
+
+
 @app.get("/api/tasks/{task_id}")
 async def get_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
     return _public_task(_owned_task(task_id, authorization))
@@ -756,7 +773,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix4-gmail-img-sanitize"}
+    return {"v": "v5-fix5-task-ux"}
 
 
 @app.get("/api/accounts")
