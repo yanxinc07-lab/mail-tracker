@@ -775,6 +775,56 @@ async def get_current_task(authorization: Optional[str] = Header(default=None)):
     return _public_task(t)
 
 
+@app.get("/api/tasks/search-recipient")
+async def search_recipient(q: str = "", authorization: Optional[str] = Header(default=None)):
+    """按收件人邮箱搜发送记录，并定位到所属任务（进度表顶部的全局搜索用）。
+    新记录带 task_id 可精确归属；旧记录没有 task_id 的，按发送时间落进哪个任务的时间窗来匹配，标 legacy。"""
+    user_id = _verify_user_id(authorization)
+    q = (q or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="至少输入 2 个字符再搜")
+    rows = _db_query(
+        "SELECT e.recipient, e.status, e.send_time, e.open_count, e.task_id, "
+        "t.subject AS task_subject, t.created_at AS task_created_at "
+        "FROM emails e LEFT JOIN send_tasks t ON e.task_id = t.id "
+        "WHERE e.user_id = %s AND e.recipient ILIKE %s "
+        "ORDER BY e.send_time DESC LIMIT 100",
+        (user_id, f"%{q}%"))
+    orphans = [r for r in rows if not r.get("task_id")]
+    if orphans:
+        tasks = _db_query(
+            "SELECT id, subject, created_at FROM send_tasks WHERE user_id = %s "
+            "ORDER BY created_at", (user_id,))
+
+        def _as_dt(v):
+            if isinstance(v, datetime):
+                return v
+            try:
+                return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            except Exception:
+                return None
+
+        task_dts = [(_as_dt(t["created_at"]), t) for t in tasks]
+        for r in orphans:
+            st = _as_dt(r["send_time"])
+            if st is None:
+                continue
+            best = None
+            for tdt, t in task_dts:
+                if tdt is not None and tdt <= st:
+                    best = t
+                else:
+                    break
+            if best:
+                r["task_id"] = best["id"]
+                r["task_subject"] = best["subject"]
+                r["task_created_at"] = best["created_at"]
+                r["legacy"] = True
+    for r in rows:
+        r.setdefault("legacy", False)
+    return {"matches": rows}
+
+
 @app.get("/api/tasks/{task_id}")
 async def get_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
     return _public_task(_owned_task(task_id, authorization))
@@ -980,7 +1030,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix7-interval-nonzero"}
+    return {"v": "v5-fix8-search-labels"}
 
 
 @app.get("/api/accounts")
