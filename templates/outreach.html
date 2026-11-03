@@ -347,6 +347,7 @@
       setupDragAndDrop();
       setupRichEditor();
       loadCopywritingList();
+      reattachRunningTask();
     }
 
     function setupDragAndDrop() {
@@ -657,31 +658,21 @@
       return content;
     }
 
-    // 把商品链接行插入到正文光标处：插入的是渲染好的蓝色链接文字，所见即所发。
-    function insertProductLink() {
-      const url = (document.getElementById("linkUrlInput")?.value || "").trim();
-      const text = document.getElementById("linkTextInput")?.value || "";
-      if (!/^https?:\/\//i.test(url)) { alert("链接地址需以 http:// 或 https:// 开头"); return; }
-      insertHtmlAtCursor(`<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>`);
+    // 插入链接：工具栏按钮打开小窗，确认后把链接行插到正文光标处（所见即所发）。
+    function openLinkModal() {
+      document.getElementById("linkModal").style.display = "flex";
+    }
+
+    function closeLinkModal() {
+      document.getElementById("linkModal").style.display = "none";
     }
 
     function insertProductLink() {
-      const ta = document.getElementById("emailBody");
       const url = (document.getElementById("linkUrlInput")?.value || "").trim();
       const text = document.getElementById("linkTextInput")?.value || "";
       if (!/^https?:\/\//i.test(url)) { alert("链接地址需以 http:// 或 https:// 开头"); return; }
-      const block = `<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>`;
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? ta.value.length;
-      const before = ta.value.slice(0, start);
-      const after = ta.value.slice(end);
-      const glueBefore = before && !before.endsWith("\n") ? "\n" : "";
-      const glueAfter = after && !after.startsWith("\n") ? "\n" : "";
-      ta.value = before + glueBefore + block + glueAfter + after;
-      const pos = (before + glueBefore + block).length;
-      ta.focus();
-      ta.setSelectionRange(pos, pos);
-      updateRealtimePreview();
+      closeLinkModal();
+      insertHtmlAtCursor(`<p><a href="${escapeHtmlText(url)}">${escapeHtmlText(text)}</a></p>`);
     }
 
     // ---------- 文案库（云端 Supabase，按登录账号隔离，RLS 保证只能看到自己的） ----------
@@ -857,10 +848,23 @@
         return;
       }
 
+      attachTaskPolling(taskId);
+    }
+
+    let taskPollTimer = null;
+
+    // 把实时进度（进度条 + 投递中按钮 + 暂停/继续/停止）挂到某个任务上：
+    // 刚点发送时调用；离开页面再回来时由 reattachRunningTask 重新调用，进程不会“丢”。
+    function attachTaskPolling(taskId) {
+      const sendBtn = document.getElementById("btnStartOutreach");
+      const progContainer = document.getElementById("progressContainer");
+      const progBar = document.getElementById("progressBar");
       currentTaskId = taskId;
       document.getElementById("taskControls").style.display = "flex";
-
-      const poll = setInterval(async () => {
+      progContainer.style.display = "block";
+      sendBtn.disabled = true;
+      if (taskPollTimer) clearInterval(taskPollTimer);
+      taskPollTimer = setInterval(async () => {
         let t;
         try {
           const r = await fetch(`/api/tasks/${taskId}`, { headers: await apiHeaders() });
@@ -874,7 +878,8 @@
         sendBtn.innerText = `⏳ 后台投递中 (${doneCount}/${t.total}) · 成功 ${t.sent} / 失败 ${t.failed}${t.status === "paused" ? " · 已暂停" : ""}`;
 
         if (["done", "stopped", "failed"].includes(t.status)) {
-          clearInterval(poll);
+          clearInterval(taskPollTimer);
+          taskPollTimer = null;
           document.getElementById("taskControls").style.display = "none";
           currentTaskId = null;
           openReportModal(t.sent, t.failed);
@@ -883,6 +888,15 @@
           progContainer.style.display = "none";
         }
       }, 1000);
+    }
+
+    // 页面打开时问后端：我有没有正在跑（或暂停）的任务，有就把实时进度接回来。
+    async function reattachRunningTask() {
+      try {
+        const r = await fetch("/api/tasks/current", { headers: await apiHeaders() });
+        const t = await r.json();
+        if (t && t.task_id) attachTaskPolling(t.task_id);
+      } catch (e) {}
     }
 
     let currentTaskId = null;
@@ -999,27 +1013,12 @@
         <div class="editor-toolbar">
           <button type="button" class="editor-tool-btn" onclick="insertProductGif()">🎬 插入产品 GIF</button>
           <button type="button" class="editor-tool-btn" onclick="insertVariableToken('{{name}}')">👤 插入变量 {{name}}</button>
+          <button type="button" class="editor-tool-btn" onclick="openLinkModal()">🔗 插入链接</button>
         </div>
         <div id="emailBodyEditor" class="form-textarea rich-editor" contenteditable="true" data-placeholder="Hi {{name}}，&#10;&#10;注意到你在相关领域的精彩分享，我们非常期待与你合作！&#10;..."></div>
         <textarea id="emailBody" style="display:none;"></textarea>
-        <span class="help-hint">说明：这个框里看到的样子就是收件人看到的样子。直接打字、或从别处粘贴都会保留段落和格式；产品 GIF 点上方按钮插入（发送时系统会把 GIF 作为内嵌附件随信发走，不是外链图，和在 Gmail 里发的效果一样）；{{name}} 这类变量发送时按每位收件人自动替换；想放商品链接，先把光标点到正文里要放的位置，再点下方“插入到正文”。</span>
+        <span class="help-hint">说明：这个框里看到的样子就是收件人看到的样子。直接打字、或从别处粘贴都会保留段落和格式；产品 GIF 点上方按钮插入（发送时系统会把 GIF 作为内嵌附件随信发走，不是外链图，和在 Gmail 里发的效果一样）；{{name}} 这类变量发送时按每位收件人自动替换；想放商品链接，先把光标点到正文里要放的位置，再点上方「🔗 插入链接」。</span>
       </div>
-      <div class="form-group" style="border-top:1px dashed rgba(36,51,44,0.12); padding-top:14px;">
-        <label class="form-label">🔗 商品链接行（插入到正文光标处）</label>
-        <div style="display:grid; grid-template-columns: 1fr 1fr auto; gap:12px; align-items:end;">
-          <div>
-            <label class="form-label" style="font-weight:normal;">链接地址</label>
-            <input type="text" id="linkUrlInput" class="form-input" value="https://shop.tiktok.com/us/pdp/1732256087876277185" autocomplete="off" />
-          </div>
-          <div>
-            <label class="form-label" style="font-weight:normal;">链接文字</label>
-            <input type="text" id="linkTextInput" class="form-input" value="👉 See it on TikTok Shop — already 2.9K+ sold ✨" autocomplete="off" />
-          </div>
-          <button type="button" class="btn-add-account" style="height:38px; padding:0 16px;" onclick="insertProductLink()">插入到正文</button>
-        </div>
-        <span class="help-hint">说明：插入后，正文里会出现一行蓝色可点击的链接文字（就是收件人看到的样子，不是一串代码）。想换位置：先删掉正文里那行，再把光标挪到新位置重新插入。</span>
-      </div>
-
       <div id="previewBox" class="preview-box">
         <div class="preview-header">
           <span>👁️ 首封邮件变量渲染预览</span>
@@ -1055,6 +1054,26 @@
     </div>
   </div>
 
+
+  <div id="linkModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-icon">🔗</div>
+      <div class="modal-title">插入链接</div>
+      <div class="modal-desc">链接会插到正文光标处，显示为一行蓝色可点击文字（就是收件人看到的样子）。想换位置：先删掉正文里那行，再把光标挪到新位置重新插入。</div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">链接地址</label>
+        <input type="text" id="linkUrlInput" class="form-input" value="https://shop.tiktok.com/us/pdp/1732256087876277185" autocomplete="off" />
+      </div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">链接文字</label>
+        <input type="text" id="linkTextInput" class="form-input" value="👉 See it on TikTok Shop — already 2.9K+ sold ✨" autocomplete="off" />
+      </div>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
+        <button type="button" class="btn-add-account" onclick="insertProductLink()">插入到正文</button>
+        <button type="button" class="btn-add-account" onclick="closeLinkModal()">取消</button>
+      </div>
+    </div>
+  </div>
 
   <div id="reportModal" class="modal-overlay">
     <div class="modal-card">
