@@ -374,9 +374,17 @@
         if (["running", "paused", "interrupted", "failed"].includes(t.status)) {
           acts += ` <button type="button" class="task-act-btn danger" onclick="event.stopPropagation(); terminateTask('${t.id}')">终止</button>`;
         }
+        let recipPreview = "";
+        try {
+          const pl = typeof t.payload === "string" ? JSON.parse(t.payload) : t.payload;
+          if (pl && Array.isArray(pl.emails) && pl.emails.length) {
+            const names = pl.emails.slice(0, 3).map(e => e.to_email).join("、");
+            recipPreview = `<div style="font-size:11px; color:#7A8B81; margin-top:3px;">${names}${pl.emails.length > 3 ? " 等 " + pl.emails.length + " 人" : ""}</div>`;
+          }
+        } catch (e) { /* 旧任务没有名单快照就不显示预览 */ }
         tr.innerHTML = `
           <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
-          <td>${t.subject || "-"}</td>
+          <td>${t.subject || "-"}${recipPreview}</td>
           <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
           <td>${statusCell}</td>
           <td style="white-space:nowrap;">${acts}</td>
@@ -414,13 +422,15 @@
           html += '<div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:8px 10px; font-size:12px; color:#795548; margin-bottom:10px;">这是旧版本创建的任务，当时没有保存完整名单，下面是按时间范围匹配到的发送记录，仅供参考。</div>';
         }
         if (!data.recipients || data.recipients.length === 0) {
-          html += '<div style="color:#78909C;">没有查到这一批的收件人记录。</div>';
+          html += '<div style="color:#78909C;">没有查到这一批的收件人名单。</div>';
         } else {
-          html += '<table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr style="text-align:left; color:#546E7A;"><th style="padding:5px;">收件人</th><th style="padding:5px;">状态</th><th style="padding:5px;">发送时间</th><th style="padding:5px;">打开</th></tr></thead><tbody>';
+          // 明细只列“发给了哪些人”：每人的状态与打开情况归追踪大盘看，不在这里重复（2026-11-03 用户定的，争议记录在产品文档）
+          html += '<div style="font-size:12px; color:#5E7267; margin-bottom:8px;">这一批共 ' + data.recipients.length + ' 位收件人：</div>';
+          html += '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
           data.recipients.forEach(r => {
-            html += `<tr style="border-top:1px solid #EEF3F0;"><td style="padding:5px;">${r.email}</td><td style="padding:5px;">${RECIP_STATUS_LABEL[r.status] || r.status}</td><td style="padding:5px;">${r.send_time ? new Date(r.send_time).toLocaleString() : "-"}</td><td style="padding:5px;">${r.open_count > 0 ? "👀 ×" + r.open_count : "-"}</td></tr>`;
+            html += `<span style="background:#EEF4F0; border:1px solid #D8E6DC; border-radius:999px; padding:3px 10px; font-size:12px; color:#2F4A3C;">${r.email}</span>`;
           });
-          html += '</tbody></table>';
+          html += '</div>';
         }
         body.innerHTML = html;
       } catch (e) {
