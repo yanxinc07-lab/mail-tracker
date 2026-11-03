@@ -425,16 +425,51 @@
           html += '<div style="color:#78909C;">没有查到这一批的收件人名单。</div>';
         } else {
           // 明细只列“发给了哪些人”：每人的状态与打开情况归追踪大盘看，不在这里重复（2026-11-03 用户定的，争议记录在产品文档）
-          html += '<div style="font-size:12px; color:#5E7267; margin-bottom:8px;">这一批共 ' + data.recipients.length + ' 位收件人：</div>';
-          html += '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
-          data.recipients.forEach(r => {
-            html += `<span style="background:#EEF4F0; border:1px solid #D8E6DC; border-radius:999px; padding:3px 10px; font-size:12px; color:#2F4A3C;">${r.email}</span>`;
-          });
-          html += '</div>';
+          // 名单可能有几百人：带搜索、默认只渲染前 100 个，其余点按钮展开，避免一股脑全塞进弹窗
+          tdRecipients = data.recipients.map(r => r.email);
+          tdExpanded = false;
+          html += '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">'
+            + '<input type="text" id="tdSearch" placeholder="🔍 输入邮箱关键词找人" style="flex:1; min-width:160px; border:1.5px solid #CFE0D5; border-radius:9px; padding:6px 10px; font-size:13px;" oninput="renderTdList()" />'
+            + '<button type="button" class="task-act-btn" onclick="copyTdList()">📋 复制名单</button></div>';
+          html += '<div id="tdSummary" style="font-size:12px; color:#5E7267; margin-bottom:8px;"></div>';
+          html += '<div id="tdList"></div>';
         }
         body.innerHTML = html;
+        if (data.recipients && data.recipients.length) renderTdList();
       } catch (e) {
         body.innerHTML = '<div style="color:#C62828;">加载失败：' + e + '</div>';
+      }
+    }
+
+    let tdRecipients = [];
+    let tdExpanded = false;
+    const TD_PAGE = 100;
+
+    function renderTdList() {
+      const box = document.getElementById("tdList");
+      const sum = document.getElementById("tdSummary");
+      if (!box) return;
+      const kw = (document.getElementById("tdSearch")?.value || "").trim().toLowerCase();
+      const filtered = kw ? tdRecipients.filter(e => e.toLowerCase().includes(kw)) : tdRecipients;
+      const shown = tdExpanded ? filtered : filtered.slice(0, TD_PAGE);
+      let html = '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
+      shown.forEach(e => {
+        html += `<span style="background:#EEF4F0; border:1px solid #D8E6DC; border-radius:999px; padding:3px 10px; font-size:12px; color:#2F4A3C;">${e}</span>`;
+      });
+      html += '</div>';
+      if (!tdExpanded && filtered.length > TD_PAGE) {
+        html += `<button type="button" class="task-act-btn" style="margin-top:10px;" onclick="tdExpanded = true; renderTdList();">显示全部（共 ${filtered.length} 位）</button>`;
+      }
+      box.innerHTML = html;
+      if (sum) sum.innerText = "这一批共 " + tdRecipients.length + " 位收件人" + (kw ? "，搜到 " + filtered.length + " 位" : "") + (shown.length < filtered.length ? "，先显示前 " + shown.length + " 位" : "");
+    }
+
+    function copyTdList() {
+      const text = tdRecipients.join("\n");
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => alert("已复制这一批 " + tdRecipients.length + " 位收件人的邮箱"));
+      } else {
+        prompt("复制下面的名单：", text);
       }
     }
 
