@@ -16,6 +16,8 @@ from email.header import decode_header
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders as mime_encoders
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
@@ -92,6 +94,11 @@ class EmailItem(BaseModel):
     subject: str
     content: str
 
+class AttachmentItem(BaseModel):
+    name: str
+    content_type: str = "application/octet-stream"
+    data: str = ""  # base64（不带 data: 前缀）
+
 class SendBatchRequest(BaseModel):
     user_email: str = ""
     user_id: str = ""
@@ -99,6 +106,7 @@ class SendBatchRequest(BaseModel):
     smtp_password: str
     emails: List[EmailItem]
     # 商品链接行拼装参数（发送前对每封正文拼装一次，默认关闭）
+    attachments: List[AttachmentItem] = []
     link_enabled: bool = False
     link_url: str = DEFAULT_LINK_URL
     link_text: str = DEFAULT_LINK_TEXT
@@ -118,6 +126,7 @@ class BatchTaskRequest(BaseModel):
     interval_seconds: float = 0
     interval_max_seconds: float = 0
     # 商品链接行拼装参数（发送前对每封正文拼装一次，默认关闭）
+    attachments: List[AttachmentItem] = []
     link_enabled: bool = False
     link_url: str = DEFAULT_LINK_URL
     link_text: str = DEFAULT_LINK_TEXT
@@ -508,9 +517,16 @@ def inline_images(html_content: str):
     images = []
     cid_map: Dict[str, str] = {}
 
-    def _name_for(src, subtype):
+    def _name_for(src, subtype, tag=""):
         if "kwoov-demo.gif" in src:
             return "KWOOV Demo.gif"
+        m = re.search(r'data-fname="([^"]+)"', tag) or re.search(r"data-fname='([^']+)'", tag)
+        if m:
+            nm = re.sub(r'[\\/<>:"\r\n]', "_", m.group(1)).strip()[:80]
+            if nm:
+                if "." not in nm:
+                    nm += f".{subtype or 'png'}"
+                return nm
         if not src.startswith("data:"):
             base = src.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
             if "." in base and 0 < len(base) <= 80:
@@ -531,13 +547,16 @@ def inline_images(html_content: str):
             return m.group(0)
         cid = f"img{len(images)}-{uuid.uuid4().hex[:10]}@mailtracker"
         cid_map[src] = cid
-        images.append((cid, data, subtype or "png", _name_for(src, subtype or "png")))
+        # 正则只匹配到 src 为止，data-fname 在 src 后面，要把整个 img 标签补全再取名字
+        tail_end = m.string.find(">", m.end())
+        full_tag = m.group(0) + (m.string[m.end():tail_end + 1] if tail_end != -1 else "")
+        images.append((cid, data, subtype or "png", _name_for(src, subtype or "png", full_tag)))
         return f"{prefix}{quote}cid:{cid}{quote}"
 
     return _IMG_SRC_RE.sub(repl, html_content), images
 
 
-def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], content: Optional[str] = None) -> str:
+def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], content: Optional[str] = None, attachments=None) -> str:
     if content is None:
         content = item.content
     # 先清掉 Gmail 内部图片引用，再内嵌正文图片，最后拼追踪像素（像素必须保持远程地址）
@@ -547,14 +566,8 @@ def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], cont
         tracking_url = f"{BASE_URL}/track/{email_id}"
         pixel_html = f'<br><img src="{tracking_url}" width="1" height="1" alt="" style="display:none !important;" />'
         content = content + pixel_html
-    if images:
-        msg = MIMEMultipart("related")
-    else:
-        msg = MIMEMultipart("alternative")
-    msg["From"] = from_addr
-    msg["To"] = item.to_email
-    msg["Subject"] = item.subject
-    msg.attach(MIMEText(content, "html", "utf-8"))
+    body_part = MIMEMultipart("related") if images else MIMEMultipart("alternative")
+    body_part.attach(MIMEText(content, "html", "utf-8"))
     for cid, data, subtype, fname in images:
         if subtype in ("gif", "jpeg", "jpg", "png", "webp"):
             part = MIMEImage(data, _subtype="jpeg" if subtype == "jpg" else subtype)
@@ -562,13 +575,32 @@ def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], cont
             part = MIMEImage(data)
         part.add_header("Content-ID", f"<{cid}>")
         part.add_header("Content-Disposition", "inline", filename=fname)
-        msg.attach(part)
+        body_part.attach(part)
+    atts = [a for a in (attachments or []) if (a.data or "").strip()]
+    if atts:
+        msg = MIMEMultipart("mixed")
+        msg.attach(body_part)
+        for a in atts:
+            raw = base64.b64decode(a.data)
+            ctype = (a.content_type or "application/octet-stream").split(";")[0].strip()
+            maintype, _, subtype = ctype.partition("/")
+            part = MIMEBase(maintype or "application", subtype or "octet-stream")
+            part.set_payload(raw)
+            mime_encoders.encode_base64(part)
+            fname = re.sub(r'[\r\n"]', "_", (a.name or "attachment")).strip() or "attachment"
+            part.add_header("Content-Disposition", "attachment", filename=fname)
+            msg.attach(part)
+    else:
+        msg = body_part
+    msg["From"] = from_addr
+    msg["To"] = item.to_email
+    msg["Subject"] = item.subject
     return msg.as_string()
 
 
 def send_one(user_id: str, conn: SmtpConnection, item: EmailItem, *,
              link_enabled: bool = False, link_url: str = DEFAULT_LINK_URL,
-             link_text: str = DEFAULT_LINK_TEXT, task_id: str = None):
+             link_text: str = DEFAULT_LINK_TEXT, task_id: str = None, attachments=None):
     """发送一封：建记录 -> 拼装链接行 -> 组装（含像素）-> 发送（失败自动重试 1 次，重试前重建连接）。
     返回 (ok: bool, error: Optional[str])
     注意：变量替换在调用方（前端提交前）完成，这里只做链接行拼装，且只拼装一次；
@@ -578,7 +610,7 @@ def send_one(user_id: str, conn: SmtpConnection, item: EmailItem, *,
         return False, "record_insert_failed"
     assembled = assemble_content(item.content, link_enabled=link_enabled,
                                  link_url=link_url, link_text=link_text)
-    msg_str = build_message(conn.account.email, item, email_id, content=assembled)
+    msg_str = build_message(conn.account.email, item, email_id, content=assembled, attachments=attachments)
     last_err = None
     for attempt in range(2):  # 首次 + 重试 1 次
         try:
@@ -629,6 +661,24 @@ def _public_task(task: dict) -> dict:
         "finished_at": task["finished_at"],
     }
 
+MAX_ATTACHMENT_SINGLE = 10 * 1024 * 1024
+MAX_ATTACHMENT_TOTAL = 20 * 1024 * 1024
+
+def _validate_attachments(atts):
+    """附件护栏：单个 ≤10MB、合计 ≤20MB（Gmail 单封上限 25MB，要留出正文余量）。"""
+    total = 0
+    for a in atts or []:
+        try:
+            raw = base64.b64decode(a.data or "", validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"附件「{a.name}」数据损坏，请重新添加")
+        if len(raw) > MAX_ATTACHMENT_SINGLE:
+            raise HTTPException(status_code=400, detail=f"附件「{a.name}」超过 10MB，请换小一点的文件")
+        total += len(raw)
+    if total > MAX_ATTACHMENT_TOTAL:
+        raise HTTPException(status_code=400, detail="附件合计超过 20MB，请删减后再发")
+
+
 def run_batch_task(task_id: str, req: BatchTaskRequest):
     task = TASKS[task_id]
     task["status"] = "running"
@@ -665,7 +715,8 @@ def run_batch_task(task_id: str, req: BatchTaskRequest):
                 conns[chosen.email] = SmtpConnection(chosen)
             ok, err = send_one(req.user_id, conns[chosen.email], item,
                                link_enabled=req.link_enabled, link_url=req.link_url,
-                               link_text=req.link_text, task_id=task_id)
+                               link_text=req.link_text, task_id=task_id,
+                               attachments=req.attachments)
             acct_stat = task["per_account"].setdefault(
                 chosen.email, {"sent": 0, "failed": 0})
             if ok:
@@ -713,6 +764,7 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
             raise HTTPException(status_code=409, detail=f"已有一个任务正在进行（已处理 {done_n}/{t['total']}），请等它完成，或先停止它再发新任务")
     if req.interval_seconds <= 0:
         raise HTTPException(status_code=400, detail="发送间隔不能为 0：每封之间必须留间隔，请把最少间隔填成大于 0 的分钟数")
+    _validate_attachments(req.attachments)
     if not req.emails:
         raise HTTPException(status_code=400, detail="名单为空")
     if len(req.emails) > MAX_EMAILS_PER_TASK:
@@ -975,6 +1027,7 @@ async def continue_task(task_id: str, background_tasks: BackgroundTasks,
         raise HTTPException(status_code=400, detail="还没有发信账号，请先在账号区添加（云端保存）")
     req = BatchTaskRequest(
         emails=[EmailItem(**e) for e in remaining],
+        attachments=[AttachmentItem(**a) for a in payload.get("attachments", [])],
         daily_cap=payload.get("daily_cap", 50),
         interval_seconds=payload.get("interval_seconds", 0),
         interval_max_seconds=payload.get("interval_max_seconds", 0),
@@ -1049,7 +1102,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix15-failvis"}
+    return {"v": "v5-fix16-imgattach"}
 
 
 @app.get("/api/accounts")
@@ -1171,6 +1224,7 @@ def _pixel_response() -> Response:
 async def send_batch_emails(req: SendBatchRequest,
                             authorization: Optional[str] = Header(default=None)):
     req.user_id = _verify_user_id(authorization)
+    _validate_attachments(req.attachments)
     if len(req.emails) > MAX_EMAILS_PER_TASK:
         raise HTTPException(status_code=400, detail=f"单批最多 {MAX_EMAILS_PER_TASK} 位收件人，请删减名单后重试")
     account = SmtpAccount(email=req.smtp_account, password=req.smtp_password)
@@ -1184,7 +1238,7 @@ async def send_batch_emails(req: SendBatchRequest,
     for item in req.emails:
         ok, _err = send_one(req.user_id, conn, item,
                             link_enabled=req.link_enabled, link_url=req.link_url,
-                            link_text=req.link_text)
+                            link_text=req.link_text, attachments=req.attachments)
         if ok:
             sent_count += 1
             daily_increment(req.smtp_account)
