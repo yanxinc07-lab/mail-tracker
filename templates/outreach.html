@@ -1018,6 +1018,8 @@
       }
 
       attachTaskPolling(taskId);
+      // 任务建好后自动跳到进度页看投递（用户 2026-11-04 定的）；切回发信页时重进接回逻辑会再挂上进度
+      setTimeout(() => { window.location.href = "/progress"; }, 600);
     }
 
     let taskPollTimer = null;
