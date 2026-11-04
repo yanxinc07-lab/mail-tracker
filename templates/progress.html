@@ -364,6 +364,13 @@
         const doneN = (t.sent || 0) + (t.failed || 0) + (t.skipped || 0);
         const pct = t.total > 0 ? Math.round((doneN / t.total) * 100) : 0;
         let statusCell = TASK_STATUS_LABEL[t.status] || t.status || "-";
+        if (t.status === "done" && (t.failed || 0) > 0) {
+          // “已完成”只表示跑完了：有失败必须一眼看出来，不能跟全成功一个样（2026-11-04 用户定的）
+          if ((t.sent || 0) === 0) statusCell = '<span style="color:#C62828; font-weight:700;">❌ 全部失败</span>';
+          else statusCell = `<span style="color:#C62828; font-weight:700;">⚠️ 已完成 · ${t.failed} 封失败</span>`;
+        } else if ((t.status === "stopped" || t.status === "interrupted") && (t.failed || 0) > 0) {
+          statusCell += `<div style="font-size:11px; color:#C62828; margin-top:3px;">其中 ${t.failed} 封失败</div>`;
+        }
         if (t.status === "running" || t.status === "paused") {
           statusCell += `<div style="margin-top:5px; background:#E7EEE9; border-radius:6px; height:8px; width:110px; overflow:hidden;"><div style="height:100%; width:${pct}%; background:#2D6A4F;"></div></div><div style="font-size:11px; color:#5E7267; margin-top:3px;">已处理 ${doneN}/${t.total} · ${pct}%</div>`;
         }
@@ -403,7 +410,8 @@
       return h;
     }
 
-    const RECIP_STATUS_LABEL = { sent: "✅ 已发送", failed: "❌ 发送失败", pending: "❔ 状态不明（发送时中断）", unsent: "⏳ 未发送" };
+    const RECIP_STATUS_LABEL = { success: "✅ 已发送", sent: "✅ 已发送", failed: "❌ 发送失败", pending: "❔ 状态不明（发送时中断）", unsent: "⏳ 未发送" };
+    function escHtml(v) { return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
     async function openTaskDetail(taskId) {
       const modal = document.getElementById("taskDetailModal");
@@ -424,9 +432,9 @@
         if (!data.recipients || data.recipients.length === 0) {
           html += '<div style="color:#78909C;">没有查到这一批的收件人名单。</div>';
         } else {
-          // 明细只列“发给了哪些人”：每人的状态与打开情况归追踪大盘看，不在这里重复（2026-11-03 用户定的，争议记录在产品文档）
-          // 名单可能有几百人：带搜索、默认只渲染前 100 个，其余点按钮展开，避免一股脑全塞进弹窗
-          tdRecipients = data.recipients.map(r => r.email);
+          // 明细列“发给了哪些人 + 每人发送状态 + 失败原因”（2026-11-04 用户拍板加上状态与原因）；打开情况仍只在追踪大盘看
+          // 名单可能有几百人：默认只渲染前 100 个，其余点按钮展开，避免一股脑全塞进弹窗
+          tdRecipients = data.recipients;
           tdExpanded = false;
           html += '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">'
             + '<button type="button" class="task-act-btn" onclick="copyTdList()">📋 复制名单</button></div>';
@@ -450,20 +458,27 @@
       if (!box) return;
       const filtered = tdRecipients;
       const shown = tdExpanded ? filtered : filtered.slice(0, TD_PAGE);
-      let html = '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
-      shown.forEach(e => {
-        html += `<span style="background:#EEF4F0; border:1px solid #D8E6DC; border-radius:999px; padding:3px 10px; font-size:12px; color:#2F4A3C;">${e}</span>`;
+      let html = '<div style="display:flex; flex-direction:column; gap:6px;">';
+      shown.forEach(r => {
+        const lbl = RECIP_STATUS_LABEL[r.status] || r.status || "";
+        html += `<div style="background:#EEF4F0; border:1px solid #D8E6DC; border-radius:8px; padding:5px 10px; font-size:12px; color:#2F4A3C;">${escHtml(r.email)} <span style="margin-left:6px;">${lbl}</span>`
+          + (r.status === "failed" && r.error ? `<div style="color:#C62828; margin-top:2px; word-break:break-all;">失败原因：${escHtml(String(r.error).slice(0, 300))}</div>` : "")
+          + '</div>';
       });
       html += '</div>';
       if (!tdExpanded && filtered.length > TD_PAGE) {
         html += `<button type="button" class="task-act-btn" style="margin-top:10px;" onclick="tdExpanded = true; renderTdList();">显示全部（共 ${filtered.length} 位）</button>`;
       }
       box.innerHTML = html;
-      if (sum) sum.innerText = "这一批共 " + tdRecipients.length + " 位收件人" + (shown.length < filtered.length ? "，先显示前 " + shown.length + " 位" : "");
+      if (sum) {
+        const okN = tdRecipients.filter(r => r.status === "success" || r.status === "sent").length;
+        const badN = tdRecipients.filter(r => r.status === "failed").length;
+        sum.innerText = "这一批共 " + tdRecipients.length + " 位收件人 · 已发送 " + okN + " · 失败 " + badN + (shown.length < filtered.length ? "（先显示前 " + shown.length + " 位）" : "");
+      }
     }
 
     function copyTdList() {
-      const text = tdRecipients.join("\n");
+      const text = tdRecipients.map(r => r.email).join("\n");
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => alert("已复制这一批 " + tdRecipients.length + " 位收件人的邮箱"));
       } else {
