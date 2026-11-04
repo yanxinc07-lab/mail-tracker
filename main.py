@@ -1030,7 +1030,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix10-versus-preview"}
+    return {"v": "v5-fix11-arena-big"}
 
 
 @app.get("/api/accounts")
