@@ -449,7 +449,15 @@ def sanitize_outbound_html(html_content: str) -> str:
         alt_m = re.search(r"alt=([\"'])(.*?)\1", tag, re.IGNORECASE | re.DOTALL)
         alt = alt_m.group(2) if alt_m else ""
         if "kwoov" in alt.lower() and ("demo" in alt.lower() or "gif" in alt.lower()):
-            return _product_gif_img_tag()
+            # 只换图片地址、保留原图自带的尺寸设置（用户在 Gmail 里选的大小）；
+            # 原图没带任何尺寸时，默认按 200 宽显示，避免按原图满格撑开。
+            new_tag = _IMG_SRC_RE.sub(
+                lambda mm: mm.group(1) + mm.group(2) + "/static/kwoov-demo.gif" + mm.group(2),
+                tag, count=1)
+            if not re.search(r"\bwidth\s*=", new_tag, re.IGNORECASE) and \
+               not re.search(r"(max-)?width\s*:", new_tag, re.IGNORECASE):
+                new_tag = re.sub(r"<img\b", '<img width="200"', new_tag, count=1, flags=re.IGNORECASE)
+            return new_tag
         return ""
 
     return re.sub(r"<img\b[^>]*>", repl, html_content, flags=re.IGNORECASE)
@@ -500,6 +508,15 @@ def inline_images(html_content: str):
     images = []
     cid_map: Dict[str, str] = {}
 
+    def _name_for(src, subtype):
+        if "kwoov-demo.gif" in src:
+            return "KWOOV Demo.gif"
+        if not src.startswith("data:"):
+            base = src.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+            if "." in base and 0 < len(base) <= 80:
+                return base
+        return f"image{len(images) + 1}.{subtype or 'png'}"
+
     def repl(m):
         prefix, quote, src = m.group(1), m.group(2), m.group(3)
         if src.startswith("cid:"):
@@ -514,7 +531,7 @@ def inline_images(html_content: str):
             return m.group(0)
         cid = f"img{len(images)}-{uuid.uuid4().hex[:10]}@mailtracker"
         cid_map[src] = cid
-        images.append((cid, data, subtype or "png"))
+        images.append((cid, data, subtype or "png", _name_for(src, subtype or "png")))
         return f"{prefix}{quote}cid:{cid}{quote}"
 
     return _IMG_SRC_RE.sub(repl, html_content), images
@@ -538,13 +555,13 @@ def build_message(from_addr: str, item: EmailItem, email_id: Optional[str], cont
     msg["To"] = item.to_email
     msg["Subject"] = item.subject
     msg.attach(MIMEText(content, "html", "utf-8"))
-    for cid, data, subtype in images:
+    for cid, data, subtype, fname in images:
         if subtype in ("gif", "jpeg", "jpg", "png", "webp"):
             part = MIMEImage(data, _subtype="jpeg" if subtype == "jpg" else subtype)
         else:
             part = MIMEImage(data)
         part.add_header("Content-ID", f"<{cid}>")
-        part.add_header("Content-Disposition", "inline")
+        part.add_header("Content-Disposition", "inline", filename=fname)
         msg.attach(part)
     return msg.as_string()
 
@@ -1030,7 +1047,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix13-poster"}
+    return {"v": "v5-fix14-imgfix"}
 
 
 @app.get("/api/accounts")
