@@ -895,7 +895,7 @@ async def task_detail(task_id: str, authorization: Optional[str] = Header(defaul
         except Exception:
             payload = None
     recs = _db_query(
-        "SELECT recipient, status, send_time, open_count FROM emails "
+        "SELECT recipient, status, send_time, open_count, error FROM emails "
         "WHERE task_id = %s AND user_id = %s ORDER BY send_time", (task_id, user_id))
     recipients = []
     legacy = False
@@ -907,10 +907,11 @@ async def task_detail(task_id: str, authorization: Optional[str] = Header(defaul
             r = by_email.get(e["to_email"])
             if r is None:
                 recipients.append({"email": e["to_email"], "status": "unsent",
-                                   "send_time": None, "open_count": 0})
+                                   "send_time": None, "open_count": 0, "error": None})
             else:
                 recipients.append({"email": e["to_email"], "status": r["status"],
-                                   "send_time": r["send_time"], "open_count": r["open_count"] or 0})
+                                   "send_time": r["send_time"], "open_count": r["open_count"] or 0,
+                                   "error": r.get("error")})
     else:
         legacy = True
         created = row["created_at"]
@@ -920,12 +921,13 @@ async def task_detail(task_id: str, authorization: Optional[str] = Header(defaul
         window_end = (nxt[0]["nxt"] if nxt and nxt[0]["nxt"]
                       else "2999-01-01T00:00:00+00:00")
         rows = _db_query(
-            "SELECT recipient, status, send_time, open_count FROM emails "
+            "SELECT recipient, status, send_time, open_count, error FROM emails "
             "WHERE user_id = %s AND send_time::timestamptz >= %s AND send_time::timestamptz < %s "
             "ORDER BY send_time", (user_id, created, window_end))
         for r in rows:
             recipients.append({"email": r["recipient"], "status": r["status"],
-                               "send_time": r["send_time"], "open_count": r["open_count"] or 0})
+                               "send_time": r["send_time"], "open_count": r["open_count"] or 0,
+                               "error": r.get("error")})
     return {
         "task_id": row["id"], "status": row["status"], "subject": row["subject"],
         "total": row["total"], "sent": row["sent"], "failed": row["failed"],
@@ -1047,7 +1049,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix14-imgfix"}
+    return {"v": "v5-fix15-failvis"}
 
 
 @app.get("/api/accounts")
