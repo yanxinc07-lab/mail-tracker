@@ -640,10 +640,6 @@
       updateRealtimePreview();
     }
 
-    function insertProductGif() {
-      insertHtmlAtCursor('<p><img src="/static/kwoov-demo.gif" alt="Kwoov 产品演示动图" style="width:200px; max-width:100%; border-radius:8px;"></p>');
-    }
-
     // ===== 插入图片（本地上传）：选图 -> 起名 -> 选显示宽度 -> 以内嵌图进正文 =====
     let pendingImage = null; // { dataUrl, naturalW }
     function openImageModal() {
@@ -1152,14 +1148,13 @@
       <div class="form-group">
         <label class="form-label">邮件正文（所见即所得，可直接粘贴带格式的内容）</label>
         <div class="editor-toolbar">
-          <button type="button" class="editor-tool-btn" onclick="insertProductGif()">🎬 插入产品 GIF</button>
           <button type="button" class="editor-tool-btn" onclick="openImageModal()">🖼 插入图片</button>
           <button type="button" class="editor-tool-btn" onclick="insertVariableToken('{{name}}')">👤 插入变量 {{name}}</button>
           <button type="button" class="editor-tool-btn" onclick="openLinkModal()">🔗 插入链接</button>
         </div>
         <div id="emailBodyEditor" class="form-textarea rich-editor" contenteditable="true" data-placeholder="Hi {{name}}，&#10;&#10;注意到你在相关领域的精彩分享，我们非常期待与你合作！&#10;..."></div>
         <textarea id="emailBody" style="display:none;"></textarea>
-        <span class="help-hint">说明：这个框里看到的样子就是收件人看到的样子。直接打字、或从别处粘贴都会保留段落和格式；产品 GIF 点上方按钮插入（发送时系统会把 GIF 作为内嵌附件随信发走，不是外链图，和在 Gmail 里发的效果一样）；{{name}} 这类变量发送时按每位收件人自动替换；想放商品链接，先把光标点到正文里要放的位置，再点上方「🔗 插入链接」。</span>
+        <span class="help-hint">说明：这个框里看到的样子就是收件人看到的样子。直接打字、或从别处粘贴都会保留段落和格式；图片点上方「🖼 插入图片」按钮从本地选图插入（发送时图片作为内嵌附件随信发走，不是外链图，和在 Gmail 里发的效果一样）；{{name}} 这类变量发送时按每位收件人自动替换；想放商品链接，先把光标点到正文里要放的位置，再点上方「🔗 插入链接」。</span>
       </div>
       <div id="previewBox" class="preview-box">
         <div class="preview-header">
