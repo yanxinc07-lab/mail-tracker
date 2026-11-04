@@ -624,8 +624,12 @@
       ed.focus();
       const sel = window.getSelection();
       let range = null;
-      if (sel.rangeCount && ed.contains(sel.anchorNode)) range = sel.getRangeAt(0);
-      else if (savedEditorRange) { sel.removeAllRanges(); sel.addRange(savedEditorRange); range = savedEditorRange; }
+      // 优先用记住的光标位置：开弹窗、选文件折腾一圈后，实时选区常被浏览器重置到正文开头，
+      // 先看实时选区就会把内容插到第一行（实测踩过）；记住的位置才是用户真正点的地方
+      if (savedEditorRange && ed.contains(savedEditorRange.startContainer)) {
+        sel.removeAllRanges(); sel.addRange(savedEditorRange); range = savedEditorRange;
+      }
+      else if (sel.rangeCount && ed.contains(sel.anchorNode)) range = sel.getRangeAt(0);
       if (range) {
         range.deleteContents();
         const frag = range.createContextualFragment(html);
@@ -655,6 +659,7 @@
       if (empty) empty.style.display = "none";
     }
     function openImageModal() {
+      rememberEditorRange(); // 先把正文里的光标位置存好，弹窗折腾完插入时按这个位置放
       pendingImage = null;
       imgTierTouched = false;
       const pv = document.getElementById("imgTierPreview");
@@ -683,11 +688,11 @@
           // 但用户已经手动选过档位时绝不覆盖他的选择
           if (!imgTierTouched) {
             const w = pendingImage.naturalW;
-            const tier = w <= 220 ? "0" : (w <= 600 ? "320" : "480");
+            const tier = w <= 220 ? "0" : (w <= 400 ? "200" : (w <= 700 ? "320" : "480"));
             document.querySelectorAll('input[name="imgSizeTier"]').forEach(r => { r.checked = (r.value === tier); });
           }
           refreshImgPreview();
-          document.getElementById("imgFileHint").innerText = "已选：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + "KB" + (w ? "，原图宽 " + w + "px" : "") + "）";
+          document.getElementById("imgFileHint").innerText = "已选：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + "KB" + (pendingImage.naturalW ? "，原图宽 " + pendingImage.naturalW + "px" : "") + "）";
         };
         probe.src = reader.result;
       };
@@ -1267,9 +1272,10 @@
       <div class="form-group" style="text-align:left;">
         <label class="form-label">在正文里显示多大（只是显示宽度，不影响清晰度）</label>
         <div style="display:flex; gap:14px; font-size:13px; color:#33473C;">
-          <label><input type="radio" name="imgSizeTier" value="200" onchange="imgTierChosen()"> 小 200</label>
-          <label><input type="radio" name="imgSizeTier" value="320" onchange="imgTierChosen()"> 中 320</label>
-          <label><input type="radio" name="imgSizeTier" value="480" onchange="imgTierChosen()"> 大 480</label>
+          <label><input type="radio" name="imgSizeTier" value="120" onchange="imgTierChosen()"> 小 120</label>
+          <label><input type="radio" name="imgSizeTier" value="200" onchange="imgTierChosen()"> 中 200</label>
+          <label><input type="radio" name="imgSizeTier" value="320" onchange="imgTierChosen()"> 大 320</label>
+          <label><input type="radio" name="imgSizeTier" value="480" onchange="imgTierChosen()"> 特大 480</label>
           <label><input type="radio" name="imgSizeTier" value="0" onchange="imgTierChosen()"> 原图</label>
         </div>
       </div>
