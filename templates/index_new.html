@@ -16,6 +16,8 @@ body{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sa
 ::selection{background:rgba(233,181,88,.85);color:#23180a}
 a{text-decoration:none}
 .bg-video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+.bg-zoom{animation:bgZoom 26s ease-in-out infinite alternate}
+@keyframes bgZoom{from{transform:scale(1)}to{transform:scale(1.07)}}
 .bg-shade{position:fixed;inset:0;z-index:1;background:linear-gradient(180deg,rgba(5,10,20,.52) 0%,rgba(5,10,20,.16) 40%,rgba(5,10,20,.34) 74%,rgba(4,8,16,.78) 100%)}
 .bg-grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.05;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E")}
 header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:18px 34px;background:linear-gradient(180deg,rgba(4,8,16,.55),transparent)}
@@ -34,10 +36,10 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 .btn-nav-gold{background:linear-gradient(180deg,#F3CD7E,#DFA63F 55%,#C9902C);color:#2A1C05;border:none;box-shadow:0 8px 22px rgba(217,147,44,.35)}
 /* ===== 对打舞台 ===== */
 .arena{position:relative;z-index:2;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:104px 16px 56px}
-.tagline{font-size:13px;letter-spacing:.34em;color:rgba(244,227,190,.8);margin-bottom:3.2vh;text-shadow:0 2px 12px rgba(0,0,0,.65);white-space:nowrap}
-.stage{display:flex;align-items:flex-end;justify-content:center;gap:1.5vw;width:min(1200px,97vw)}
+.tagline{font-size:13px;letter-spacing:.34em;color:rgba(244,227,190,.8);margin-bottom:1.4vh;text-shadow:0 2px 12px rgba(0,0,0,.65);white-space:nowrap}
+.stage{display:flex;align-items:flex-end;justify-content:center;gap:0.5vw;width:min(1400px,99vw)}
 .zone{position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .16s ease;-webkit-tap-highlight-color:transparent;border-radius:18px}
-.fighter{position:relative;height:min(53vh,540px);display:flex;align-items:flex-end;justify-content:center}
+.fighter{position:relative;height:min(72vh,800px);display:flex;align-items:flex-end;justify-content:center}
 .fighter img{height:100%;width:auto;position:relative;z-index:2;filter:drop-shadow(0 18px 28px rgba(0,0,0,.55));animation:bob 3.4s ease-in-out infinite alternate;transition:transform .38s ease-in,filter .38s,opacity .38s;pointer-events:none}
 #zoneR .fighter img{animation-delay:-1.7s}
 @keyframes bob{from{transform:translateY(0)}to{transform:translateY(-9px)}}
@@ -90,7 +92,7 @@ footer{position:relative;z-index:2;text-align:center;padding:0 20px 26px;color:r
   .plugin{display:none}
   .arena{padding-top:92px}
   .tagline{font-size:11.5px;letter-spacing:.2em}
-  .fighter{height:37vh}
+  .fighter{height:50vh}
   .vs{padding-bottom:9vh}
   .vs-badge::before{inset:-18px}
   .plate{padding:11px 20px;font-size:13.5px;margin-top:1.8vh}
@@ -215,7 +217,7 @@ footer{position:relative;z-index:2;text-align:center;padding:0 20px 26px;color:r
 </head>
 <body>
 
-<video class="bg-video" autoplay muted loop playsinline src="/static/ocean.mp4"></video>
+<img class="bg-video bg-zoom" src="/static/arena-bg.webp" alt="">
 <div class="bg-shade"></div>
 <div class="bg-grain"></div>
 
