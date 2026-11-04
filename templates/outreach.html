@@ -668,35 +668,76 @@
       if (empty) empty.style.display = "block";
       document.getElementById("imgFileInput").value = "";
       document.getElementById("imgNameInput").value = "";
-      document.getElementById("imgFileHint").innerText = "支持 JPG / PNG / GIF / WebP，单张不超过 5MB。手机的 HEIC 格式邮件里不认，请先转成 JPG。";
+      document.getElementById("imgFileHint").innerText = "支持 JPG / PNG / GIF / WebP，单张不超过 2MB；普通图超过会自动压缩，GIF 超过 2MB 请换小一点的。手机的 HEIC 格式邮件里不认，请先转成 JPG。";
       document.getElementById("imgModal").style.display = "flex";
     }
     function closeImageModal() { document.getElementById("imgModal").style.display = "none"; }
+    const IMG_MAX_BYTES = 2 * 1024 * 1024; // 内嵌图单张上限 2MB（2026-11-04 用户定版）
     function onImageFileChosen(input) {
       const f = input.files && input.files[0];
       if (!f) return;
       const okTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
       if (!okTypes.includes(f.type)) { alert("这个格式邮件里用不了（" + (f.type || "未知格式") + "），请换成 JPG / PNG / GIF / WebP。"); input.value = ""; return; }
-      if (f.size > 5 * 1024 * 1024) { alert("这张图超过 5MB 了，请压缩后再插入（太大的图收件人打开慢、也容易进垃圾箱）。"); input.value = ""; return; }
+      const isGif = f.type === "image/gif";
+      if (isGif && f.size > IMG_MAX_BYTES) {
+        alert("这张 GIF 有 " + (f.size / 1048576).toFixed(1) + "MB，超过 2MB 上限了。动图没法在浏览器里压缩（一压就不动了），请换一张小一点的 GIF。");
+        input.value = ""; return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
+        if (!isGif && f.size > IMG_MAX_BYTES) {
+          compressImageDataUrl(reader.result, function(comp) {
+            if (!comp) { alert("这张图压缩后还是超过 2MB，这次没插入，请换一张小一点的图。"); return; }
+            setPendingImage(comp.dataUrl, comp.w, f, true);
+          });
+          return;
+        }
         const probe = new Image();
-        probe.onload = () => {
-          pendingImage = { dataUrl: reader.result, naturalW: probe.naturalWidth || 0 };
-          document.getElementById("imgNameInput").value = f.name;
-          // 默认档位按原图宽度智能给：小图原样、中图 320、大图 480（都可在弹窗里改）；
-          // 但用户已经手动选过档位时绝不覆盖他的选择
-          if (!imgTierTouched) {
-            const w = pendingImage.naturalW;
-            const tier = w <= 220 ? "0" : (w <= 400 ? "200" : (w <= 700 ? "320" : "480"));
-            document.querySelectorAll('input[name="imgSizeTier"]').forEach(r => { r.checked = (r.value === tier); });
-          }
-          refreshImgPreview();
-          document.getElementById("imgFileHint").innerText = "已选：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + "KB" + (pendingImage.naturalW ? "，原图宽 " + pendingImage.naturalW + "px" : "") + "）";
-        };
+        probe.onload = () => setPendingImage(reader.result, probe.naturalWidth || 0, f, false);
         probe.src = reader.result;
       };
       reader.readAsDataURL(f);
+    }
+    function setPendingImage(dataUrl, w, f, wasCompressed) {
+      pendingImage = { dataUrl: dataUrl, naturalW: w || 0 };
+      // 压缩后实际存的是 JPEG，文件名后缀跟着改，免得收件人那边名实不符
+      let dispName = f.name;
+      if (wasCompressed && /\.(png|webp)$/i.test(dispName)) dispName = dispName.replace(/\.(png|webp)$/i, ".jpg");
+      document.getElementById("imgNameInput").value = dispName;
+      // 默认档位按图宽度智能给（都可在弹窗里改）；用户已经手动选过档位时绝不覆盖他的选择
+      if (!imgTierTouched) {
+        const tier = w <= 220 ? "0" : (w <= 400 ? "200" : (w <= 700 ? "320" : "480"));
+        document.querySelectorAll('input[name="imgSizeTier"]').forEach(r => { r.checked = (r.value === tier); });
+      }
+      refreshImgPreview();
+      const finalKB = Math.max(1, Math.round(dataUrl.length * 3 / 4 / 1024));
+      document.getElementById("imgFileHint").innerText = "已选：" + f.name + "（原图 " + Math.max(1, Math.round(f.size / 1024)) + "KB" + (wasCompressed ? "，已自动压缩到 " + finalKB + "KB" : "") + (w ? "，宽 " + w + "px" : "") + "）";
+    }
+    // 把普通图（JPG/PNG/WebP）按阶梯缩放重编码成 JPEG，直到压进 2MB；压不动返回 null
+    function compressImageDataUrl(dataUrl, cb) {
+      const img = new Image();
+      img.onload = () => {
+        const steps = [[1200, 0.85], [900, 0.8], [700, 0.72]];
+        let li = 0;
+        const attempt = () => {
+          const sw = steps[Math.min(li, steps.length - 1)][0];
+          const sq = steps[Math.min(li, steps.length - 1)][1];
+          const scale = Math.min(1, sw / (img.naturalWidth || sw));
+          const c = document.createElement("canvas");
+          c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          const out = c.toDataURL("image/jpeg", sq);
+          const bytes = Math.floor(out.length * 3 / 4);
+          if (bytes <= IMG_MAX_BYTES) { cb({ dataUrl: out, w: c.width }); return; }
+          li++;
+          if (li >= steps.length) { cb(null); return; }
+          attempt();
+        };
+        attempt();
+      };
+      img.onerror = () => cb(null);
+      img.src = dataUrl;
     }
     function escAttr(v) { return String(v || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
     function confirmInsertImage() {
@@ -709,48 +750,6 @@
       const widthAttr = tier === "0" ? "" : ' width="' + tier + '"';
       insertHtmlAtCursor('<p><img src="' + pendingImage.dataUrl + '" alt="' + escAttr(name) + '" data-fname="' + escAttr(name) + '"' + widthAttr + ' style="' + style + '"></p>');
       closeImageModal();
-    }
-
-    // ===== 附件（与插入图片分开，和 Gmail 一样）：随这一批的每一封一起发出，名字可改 =====
-    let mailAttachments = []; // { name, content_type, data(base64) }
-    function fmtSize(n) { return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB"; }
-    function onAttachFilesChosen(input) {
-      const files = [...(input.files || [])];
-      input.value = "";
-      let added = 0;
-      files.forEach(f => {
-        if (f.size > 10 * 1024 * 1024) { alert("附件「" + f.name + "」超过 10MB，已跳过。"); return; }
-        const curTotal = mailAttachments.reduce((t, a) => t + Math.floor(a.data.length * 3 / 4), 0);
-        if (curTotal + f.size > 20 * 1024 * 1024) { alert("附件合计要超过 20MB 了，「" + f.name + "」没有加上。"); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-          mailAttachments.push({ name: f.name, content_type: f.type || "application/octet-stream", data: String(reader.result).split(",")[1] || "" });
-          renderAttachList();
-        };
-        reader.readAsDataURL(f);
-        added++;
-      });
-      if (added) setTimeout(renderAttachList, 300);
-    }
-    function renderAttachList() {
-      const box = document.getElementById("attachList");
-      if (!box) return;
-      box.innerHTML = "";
-      mailAttachments.forEach((a, i) => {
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#F4F8F5; border:1px solid #D8E6DC; border-radius:8px; padding:6px 10px;";
-        row.innerHTML = '<span style="font-size:12px; color:#5E7267;">📎 ' + fmtSize(Math.floor(a.data.length * 3 / 4)) + '</span>';
-        const nameInput = document.createElement("input");
-        nameInput.type = "text"; nameInput.value = a.name; nameInput.className = "form-input";
-        nameInput.style.cssText = "flex:1; min-width:180px; height:30px; font-size:13px;";
-        nameInput.title = "附件名字（收件人看到的就是这个名字）";
-        nameInput.onchange = () => { mailAttachments[i].name = nameInput.value.trim() || a.name; };
-        const del = document.createElement("button");
-        del.type = "button"; del.className = "editor-tool-btn"; del.innerText = "删除";
-        del.onclick = () => { mailAttachments.splice(i, 1); renderAttachList(); };
-        row.appendChild(nameInput); row.appendChild(del);
-        box.appendChild(row);
-      });
     }
 
     function insertSubjectVariable(tok) {
@@ -923,7 +922,14 @@
       // 正文里内嵌图片太大的提醒（不拦，只提醒：太大的信容易被判营销、打开慢）
       const bodyHtmlForSize = document.getElementById("emailBody")?.value || "";
       let imgBytes = 0;
-      for (const m of bodyHtmlForSize.matchAll(/data:[^"')]+/g)) imgBytes += Math.floor(m[0].length * 3 / 4);
+      for (const m of bodyHtmlForSize.matchAll(/data:[^"')]+/g)) {
+        const oneBytes = Math.floor(m[0].length * 3 / 4);
+        if (oneBytes > 2 * 1024 * 1024) {
+          alert("正文里有一张图片超过 2MB 了，请把它删掉、换一张小一点的（用「插入图片」重新选它会自动处理）。");
+          return;
+        }
+        imgBytes += oneBytes;
+      }
       if (imgBytes > 3 * 1024 * 1024) {
         if (!confirm(`正文里内嵌的图片合计约 ${(imgBytes / 1024 / 1024).toFixed(1)}MB，偏大：收件人打开会慢，也更容易被判成营销邮件。确定还要发吗？`)) return;
       }
@@ -994,7 +1000,6 @@
             link_enabled: false,
             link_url: "",
             link_text: "",
-            attachments: mailAttachments
           })
         });
         const result = await res.json();
@@ -1194,16 +1199,6 @@
 
       <div id="progressContainer" class="progress-bar-container">
         <div id="progressBar" class="progress-bar"></div>
-      </div>
-
-      <div class="form-group" style="margin-top:14px;">
-        <label class="form-label">📎 附件（可不加）</label>
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <button type="button" class="editor-tool-btn" onclick="document.getElementById('attachFileInput').click()">＋ 添加附件</button>
-          <input type="file" id="attachFileInput" multiple style="display:none;" onchange="onAttachFilesChosen(this)" />
-          <span class="help-hint">这一批的每一封都会带上这些附件，名字可以改。单个不超过 10MB、合计不超过 20MB。</span>
-        </div>
-        <div id="attachList" style="margin-top:8px; display:flex; flex-direction:column; gap:6px;"></div>
       </div>
 
       <div class="form-group" style="margin-top:14px;">
