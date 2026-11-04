@@ -642,8 +642,25 @@
 
     // ===== 插入图片（本地上传）：选图 -> 起名 -> 选显示宽度 -> 以内嵌图进正文 =====
     let pendingImage = null; // { dataUrl, naturalW }
+    let imgTierTouched = false; // 用户手动选过档位后，自动默认档不许再覆盖（修“小和中一个尺寸”的根源）
+    function imgTierChosen() { imgTierTouched = true; refreshImgPreview(); }
+    function refreshImgPreview() {
+      const pv = document.getElementById("imgTierPreview");
+      const empty = document.getElementById("imgPreviewEmpty");
+      if (!pv || !pendingImage) return;
+      const tier = (document.querySelector('input[name="imgSizeTier"]:checked') || {}).value || "200";
+      pv.src = pendingImage.dataUrl;
+      pv.style.display = "block";
+      pv.style.width = tier === "0" ? (pendingImage.naturalW ? pendingImage.naturalW + "px" : "auto") : tier + "px";
+      if (empty) empty.style.display = "none";
+    }
     function openImageModal() {
       pendingImage = null;
+      imgTierTouched = false;
+      const pv = document.getElementById("imgTierPreview");
+      if (pv) { pv.style.display = "none"; pv.removeAttribute("src"); }
+      const empty = document.getElementById("imgPreviewEmpty");
+      if (empty) empty.style.display = "block";
       document.getElementById("imgFileInput").value = "";
       document.getElementById("imgNameInput").value = "";
       document.getElementById("imgFileHint").innerText = "支持 JPG / PNG / GIF / WebP，单张不超过 5MB。手机的 HEIC 格式邮件里不认，请先转成 JPG。";
@@ -662,10 +679,14 @@
         probe.onload = () => {
           pendingImage = { dataUrl: reader.result, naturalW: probe.naturalWidth || 0 };
           document.getElementById("imgNameInput").value = f.name;
-          // 默认档位按原图宽度智能给：小图原样、中图 320、大图 480（都可在弹窗里改）
-          const w = pendingImage.naturalW;
-          const tier = w <= 220 ? "0" : (w <= 600 ? "320" : "480");
-          document.querySelectorAll('input[name="imgSizeTier"]').forEach(r => { r.checked = (r.value === tier); });
+          // 默认档位按原图宽度智能给：小图原样、中图 320、大图 480（都可在弹窗里改）；
+          // 但用户已经手动选过档位时绝不覆盖他的选择
+          if (!imgTierTouched) {
+            const w = pendingImage.naturalW;
+            const tier = w <= 220 ? "0" : (w <= 600 ? "320" : "480");
+            document.querySelectorAll('input[name="imgSizeTier"]').forEach(r => { r.checked = (r.value === tier); });
+          }
+          refreshImgPreview();
           document.getElementById("imgFileHint").innerText = "已选：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + "KB" + (w ? "，原图宽 " + w + "px" : "") + "）";
         };
         probe.src = reader.result;
@@ -680,7 +701,8 @@
       const style = tier === "0"
         ? "max-width:100%; border-radius:8px;"
         : "width:" + tier + "px; max-width:100%; border-radius:8px;";
-      insertHtmlAtCursor('<p><img src="' + pendingImage.dataUrl + '" alt="' + escAttr(name) + '" data-fname="' + escAttr(name) + '" style="' + style + '"></p>');
+      const widthAttr = tier === "0" ? "" : ' width="' + tier + '"';
+      insertHtmlAtCursor('<p><img src="' + pendingImage.dataUrl + '" alt="' + escAttr(name) + '" data-fname="' + escAttr(name) + '"' + widthAttr + ' style="' + style + '"></p>');
       closeImageModal();
     }
 
@@ -1245,10 +1267,17 @@
       <div class="form-group" style="text-align:left;">
         <label class="form-label">在正文里显示多大（只是显示宽度，不影响清晰度）</label>
         <div style="display:flex; gap:14px; font-size:13px; color:#33473C;">
-          <label><input type="radio" name="imgSizeTier" value="200"> 小 200</label>
-          <label><input type="radio" name="imgSizeTier" value="320"> 中 320</label>
-          <label><input type="radio" name="imgSizeTier" value="480"> 大 480</label>
-          <label><input type="radio" name="imgSizeTier" value="0"> 原图</label>
+          <label><input type="radio" name="imgSizeTier" value="200" onchange="imgTierChosen()"> 小 200</label>
+          <label><input type="radio" name="imgSizeTier" value="320" onchange="imgTierChosen()"> 中 320</label>
+          <label><input type="radio" name="imgSizeTier" value="480" onchange="imgTierChosen()"> 大 480</label>
+          <label><input type="radio" name="imgSizeTier" value="0" onchange="imgTierChosen()"> 原图</label>
+        </div>
+      </div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">预览（就是插入后的显示大小）</label>
+        <div style="background:#F4F8F5; border:1px solid #D8E6DC; border-radius:8px; padding:8px; overflow:hidden;">
+          <img id="imgTierPreview" style="display:none; max-width:100%; border-radius:6px;" alt="" />
+          <div id="imgPreviewEmpty" style="font-size:12px; color:#78909C;">选好图片后这里会显示它插入后的大小，切换上面的档位会立刻变。</div>
         </div>
       </div>
       <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
