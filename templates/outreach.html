@@ -590,9 +590,23 @@
       if (ed && hidden) hidden.value = ed.innerHTML;
     }
 
+    // 编辑/预览里把 Gmail 内部地址的产品图换成站内图显示出来：原来模板里的图是从 Gmail
+    // 复制来的内部地址，在编辑器里加载不出来、只留一大块空白；发送时的清洗替换同一套规则。
+    function fixGmailImgs(root) {
+      if (!root) return;
+      root.querySelectorAll("img").forEach(img => {
+        const src = img.getAttribute("src") || "";
+        if (!src.includes("mail.google.com")) return;
+        const alt = (img.getAttribute("alt") || "").toLowerCase();
+        if (alt.includes("kwoov") && (alt.includes("demo") || alt.includes("gif"))) {
+          img.setAttribute("src", "/static/kwoov-demo.gif");
+        }
+      });
+    }
+
     function setBodyContent(html) {
       const ed = document.getElementById("emailBodyEditor");
-      if (ed) ed.innerHTML = html || "";
+      if (ed) { ed.innerHTML = html || ""; fixGmailImgs(ed); }
       syncBodyFromEditor();
     }
 
@@ -628,6 +642,92 @@
 
     function insertProductGif() {
       insertHtmlAtCursor('<p><img src="/static/kwoov-demo.gif" alt="Kwoov 产品演示动图" style="width:200px; max-width:100%; border-radius:8px;"></p>');
+    }
+
+    // ===== 插入图片（本地上传）：选图 -> 起名 -> 选显示宽度 -> 以内嵌图进正文 =====
+    let pendingImage = null; // { dataUrl, naturalW }
+    function openImageModal() {
+      pendingImage = null;
+      document.getElementById("imgFileInput").value = "";
+      document.getElementById("imgNameInput").value = "";
+      document.getElementById("imgFileHint").innerText = "支持 JPG / PNG / GIF / WebP，单张不超过 5MB。手机的 HEIC 格式邮件里不认，请先转成 JPG。";
+      document.getElementById("imgModal").style.display = "flex";
+    }
+    function closeImageModal() { document.getElementById("imgModal").style.display = "none"; }
+    function onImageFileChosen(input) {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      const okTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      if (!okTypes.includes(f.type)) { alert("这个格式邮件里用不了（" + (f.type || "未知格式") + "），请换成 JPG / PNG / GIF / WebP。"); input.value = ""; return; }
+      if (f.size > 5 * 1024 * 1024) { alert("这张图超过 5MB 了，请压缩后再插入（太大的图收件人打开慢、也容易进垃圾箱）。"); input.value = ""; return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const probe = new Image();
+        probe.onload = () => {
+          pendingImage = { dataUrl: reader.result, naturalW: probe.naturalWidth || 0 };
+          document.getElementById("imgNameInput").value = f.name;
+          // 默认档位按原图宽度智能给：小图原样、中图 320、大图 480（都可在弹窗里改）
+          const w = pendingImage.naturalW;
+          const tier = w <= 220 ? "0" : (w <= 600 ? "320" : "480");
+          document.querySelectorAll('input[name="imgSizeTier"]').forEach(r => { r.checked = (r.value === tier); });
+          document.getElementById("imgFileHint").innerText = "已选：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + "KB" + (w ? "，原图宽 " + w + "px" : "") + "）";
+        };
+        probe.src = reader.result;
+      };
+      reader.readAsDataURL(f);
+    }
+    function escAttr(v) { return String(v || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
+    function confirmInsertImage() {
+      if (!pendingImage) { alert("先选一张图片"); return; }
+      const name = (document.getElementById("imgNameInput").value || "").trim() || "image";
+      const tier = (document.querySelector('input[name="imgSizeTier"]:checked') || {}).value || "200";
+      const style = tier === "0"
+        ? "max-width:100%; border-radius:8px;"
+        : "width:" + tier + "px; max-width:100%; border-radius:8px;";
+      insertHtmlAtCursor('<p><img src="' + pendingImage.dataUrl + '" alt="' + escAttr(name) + '" data-fname="' + escAttr(name) + '" style="' + style + '"></p>');
+      closeImageModal();
+    }
+
+    // ===== 附件（与插入图片分开，和 Gmail 一样）：随这一批的每一封一起发出，名字可改 =====
+    let mailAttachments = []; // { name, content_type, data(base64) }
+    function fmtSize(n) { return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB"; }
+    function onAttachFilesChosen(input) {
+      const files = [...(input.files || [])];
+      input.value = "";
+      let added = 0;
+      files.forEach(f => {
+        if (f.size > 10 * 1024 * 1024) { alert("附件「" + f.name + "」超过 10MB，已跳过。"); return; }
+        const curTotal = mailAttachments.reduce((t, a) => t + Math.floor(a.data.length * 3 / 4), 0);
+        if (curTotal + f.size > 20 * 1024 * 1024) { alert("附件合计要超过 20MB 了，「" + f.name + "」没有加上。"); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          mailAttachments.push({ name: f.name, content_type: f.type || "application/octet-stream", data: String(reader.result).split(",")[1] || "" });
+          renderAttachList();
+        };
+        reader.readAsDataURL(f);
+        added++;
+      });
+      if (added) setTimeout(renderAttachList, 300);
+    }
+    function renderAttachList() {
+      const box = document.getElementById("attachList");
+      if (!box) return;
+      box.innerHTML = "";
+      mailAttachments.forEach((a, i) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#F4F8F5; border:1px solid #D8E6DC; border-radius:8px; padding:6px 10px;";
+        row.innerHTML = '<span style="font-size:12px; color:#5E7267;">📎 ' + fmtSize(Math.floor(a.data.length * 3 / 4)) + '</span>';
+        const nameInput = document.createElement("input");
+        nameInput.type = "text"; nameInput.value = a.name; nameInput.className = "form-input";
+        nameInput.style.cssText = "flex:1; min-width:180px; height:30px; font-size:13px;";
+        nameInput.title = "附件名字（收件人看到的就是这个名字）";
+        nameInput.onchange = () => { mailAttachments[i].name = nameInput.value.trim() || a.name; };
+        const del = document.createElement("button");
+        del.type = "button"; del.className = "editor-tool-btn"; del.innerText = "删除";
+        del.onclick = () => { mailAttachments.splice(i, 1); renderAttachList(); };
+        row.appendChild(nameInput); row.appendChild(del);
+        box.appendChild(row);
+      });
     }
 
     function insertSubjectVariable(tok) {
@@ -771,6 +871,14 @@
       doc.querySelectorAll("*").forEach(n => {
         [...n.attributes].forEach(a => { if (/^on/i.test(a.name)) n.removeAttribute(a.name); });
       });
+      // 与发送端清洗一致：Gmail 内部地址的产品图换站内图、其他内部图收件人看不见就先去掉，预览不留假空白
+      doc.querySelectorAll("img").forEach(img => {
+        const src = img.getAttribute("src") || "";
+        if (!src.includes("mail.google.com")) return;
+        const alt = (img.getAttribute("alt") || "").toLowerCase();
+        if (alt.includes("kwoov") && (alt.includes("demo") || alt.includes("gif"))) img.setAttribute("src", "/static/kwoov-demo.gif");
+        else img.remove();
+      });
       return doc.body.innerHTML;
     }
 
@@ -787,6 +895,14 @@
       if (cloudAccounts.length === 0) {
         alert("还没有发信账号，请先在上方账号区添加（云端保存）！");
         return;
+      }
+
+      // 正文里内嵌图片太大的提醒（不拦，只提醒：太大的信容易被判营销、打开慢）
+      const bodyHtmlForSize = document.getElementById("emailBody")?.value || "";
+      let imgBytes = 0;
+      for (const m of bodyHtmlForSize.matchAll(/data:[^"')]+/g)) imgBytes += Math.floor(m[0].length * 3 / 4);
+      if (imgBytes > 3 * 1024 * 1024) {
+        if (!confirm(`正文里内嵌的图片合计约 ${(imgBytes / 1024 / 1024).toFixed(1)}MB，偏大：收件人打开会慢，也更容易被判成营销邮件。确定还要发吗？`)) return;
       }
 
       const capTotal = cloudAccounts.length * 50;
@@ -854,7 +970,8 @@
             interval_max_seconds: Math.max(parseFloat(document.getElementById("intervalMin")?.value) || 0, parseFloat(document.getElementById("intervalMax")?.value) || 0) * 60,
             link_enabled: false,
             link_url: "",
-            link_text: ""
+            link_text: "",
+            attachments: mailAttachments
           })
         });
         const result = await res.json();
@@ -1036,6 +1153,7 @@
         <label class="form-label">邮件正文（所见即所得，可直接粘贴带格式的内容）</label>
         <div class="editor-toolbar">
           <button type="button" class="editor-tool-btn" onclick="insertProductGif()">🎬 插入产品 GIF</button>
+          <button type="button" class="editor-tool-btn" onclick="openImageModal()">🖼 插入图片</button>
           <button type="button" class="editor-tool-btn" onclick="insertVariableToken('{{name}}')">👤 插入变量 {{name}}</button>
           <button type="button" class="editor-tool-btn" onclick="openLinkModal()">🔗 插入链接</button>
         </div>
@@ -1057,7 +1175,17 @@
       </div>
 
       <div class="form-group" style="margin-top:14px;">
-        <label class="form-label">🏷 批次名称（可不填）</label>
+        <label class="form-label">📎 附件（可不加）</label>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <button type="button" class="editor-tool-btn" onclick="document.getElementById('attachFileInput').click()">＋ 添加附件</button>
+          <input type="file" id="attachFileInput" multiple style="display:none;" onchange="onAttachFilesChosen(this)" />
+          <span class="help-hint">这一批的每一封都会带上这些附件，名字可以改。单个不超过 10MB、合计不超过 20MB。</span>
+        </div>
+        <div id="attachList" style="margin-top:8px; display:flex; flex-direction:column; gap:6px;"></div>
+      </div>
+
+      <div class="form-group" style="margin-top:14px;">
+        <label class="form-label">🏷 任务批次命名（可不填）</label>
         <input type="text" id="batchName" class="form-input" placeholder="给这一批起个名，方便以后在进度表里回看，如：11月美区宠物达人第一批" autocomplete="off" />
         <span class="help-hint">不填就用主题模板当标题。</span>
       </div>
@@ -1101,6 +1229,36 @@
       <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
         <button type="button" class="btn-add-account" onclick="insertProductLink()">插入到正文</button>
         <button type="button" class="btn-add-account" onclick="closeLinkModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="imgModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-icon">🖼</div>
+      <div class="modal-title">插入图片</div>
+      <div class="modal-desc">从电脑里选一张图插到正文光标处。发送时它会作为内嵌图片随信发走（不是外链），并带着你起的名字；存进文案模板后，图就一直在模板里，不用重传。</div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">选择图片</label>
+        <input type="file" id="imgFileInput" accept="image/png,image/jpeg,image/gif,image/webp" onchange="onImageFileChosen(this)" />
+        <div id="imgFileHint" style="font-size:12px; color:#78909C; margin-top:6px;"></div>
+      </div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">图片名字（收件人看到的附件名）</label>
+        <input type="text" id="imgNameInput" class="form-input" placeholder="如 产品展示图.png" autocomplete="off" />
+      </div>
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">在正文里显示多大（只是显示宽度，不影响清晰度）</label>
+        <div style="display:flex; gap:14px; font-size:13px; color:#33473C;">
+          <label><input type="radio" name="imgSizeTier" value="200"> 小 200</label>
+          <label><input type="radio" name="imgSizeTier" value="320"> 中 320</label>
+          <label><input type="radio" name="imgSizeTier" value="480"> 大 480</label>
+          <label><input type="radio" name="imgSizeTier" value="0"> 原图</label>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
+        <button type="button" class="btn-add-account" onclick="confirmInsertImage()">插入到正文</button>
+        <button type="button" class="btn-add-account" onclick="closeImageModal()">取消</button>
       </div>
     </div>
   </div>
