@@ -60,7 +60,8 @@
           const tr = document.createElement("tr");
           let statusHtml;
           if (e.status === "failed") {
-            statusHtml = '<span class="badge badge-unread">发送失败</span>';
+            const errTxt = String(e.error || "").slice(0, 300).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            statusHtml = '<span class="badge badge-unread">发送失败</span>' + (errTxt ? `<div style="color:#C62828; font-size:12px; margin-top:4px; max-width:360px; white-space:normal; word-break:break-all;">${errTxt}</div>` : "");
           } else if ((e.open_count || 0) > 0) {
             statusHtml = `<span class="badge badge-read">已读 ×${e.open_count}</span>`;
           } else {
