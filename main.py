@@ -1071,7 +1071,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix21-noattach-imglimit"}
+    return {"v": "v5-fix22-jumpprogress"}
 
 
 @app.get("/api/accounts")
