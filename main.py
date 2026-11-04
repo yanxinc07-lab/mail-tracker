@@ -1102,7 +1102,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix18-tiersize"}
+    return {"v": "v5-fix19-previewalways"}
 
 
 @app.get("/api/accounts")
