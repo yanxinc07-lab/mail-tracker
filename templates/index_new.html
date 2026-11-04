@@ -35,7 +35,7 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 .btn-nav:hover{border-color:rgba(255,215,106,.7)}
 .btn-nav-gold{background:linear-gradient(180deg,#F3CD7E,#DFA63F 55%,#C9902C);color:#2A1C05;border:none;box-shadow:0 8px 22px rgba(217,147,44,.35)}
 /* ===== 对打舞台 ===== */
-.arena{position:relative;z-index:2;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:104px 16px 56px}
+.arena{position:relative;z-index:2;overflow:hidden;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:104px 16px 56px}
 .tagline{font-size:13px;letter-spacing:.34em;color:rgba(244,227,190,.8);margin-bottom:1.4vh;text-shadow:0 2px 12px rgba(0,0,0,.65);white-space:nowrap}
 .stage{display:flex;align-items:flex-end;justify-content:center;gap:0.5vw;width:min(1400px,99vw)}
 .zone{position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .16s ease;-webkit-tap-highlight-color:transparent;border-radius:18px}
@@ -72,6 +72,20 @@ header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:c
 .soundBtn{position:fixed;right:18px;bottom:16px;z-index:70;width:44px;height:44px;border-radius:50%;background:rgba(10,20,35,.55);border:1px solid rgba(233,181,88,.35);color:#F4E3BE;font-size:19px;cursor:pointer;backdrop-filter:blur(8px);font-family:inherit}
 .soundBtn:hover{border-color:rgba(255,215,106,.8)}
 footer{position:relative;z-index:2;text-align:center;padding:0 20px 26px;color:rgba(238,230,214,.42);font-size:12.5px;letter-spacing:.08em;margin-top:-34px}
+
+.fighter::after{content:'';position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);width:74%;height:30px;background:radial-gradient(ellipse at center,rgba(0,0,0,.5) 0%,transparent 68%);filter:blur(4px);z-index:1}
+#zoneL .fighter{transform:rotate(1.8deg)}
+#zoneR .fighter{transform:rotate(-1.8deg)}
+@media(min-width:721px){#zoneL{margin-right:-3vw}#zoneR{margin-left:-3vw}}
+.burst{position:absolute;left:50%;top:42%;width:200px;height:200px;transform:translate(-50%,-50%);opacity:.8;animation:burstSpin 28s linear infinite;filter:drop-shadow(0 0 22px rgba(255,180,60,.55));pointer-events:none}
+@keyframes burstSpin{from{transform:translate(-50%,-50%) rotate(0)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+.vs-badge{z-index:2}
+.plate{border-radius:8px;transform:skewX(-8deg);box-shadow:0 12px 30px rgba(0,0,0,.45)}
+.btn-gold.plate:hover,.btn-glass.plate:hover{transform:skewX(-8deg) translateY(-2px)}
+.plate:active{transform:skewX(-8deg) scale(.97)}
+.embers{position:absolute;inset:0;pointer-events:none;z-index:1}
+.ember{position:absolute;border-radius:50%;background:radial-gradient(circle,#FFE9A8 0%,rgba(233,150,44,.55) 45%,transparent 72%);animation:drift linear infinite}
+@keyframes drift{0%{transform:translate(0,0);opacity:0}10%{opacity:.95}86%{opacity:.65}100%{transform:translate(var(--sway,24px),-48vh);opacity:0}}
 /* ===== 登录弹窗 ===== */
 #authOverlay{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;background:rgba(3,6,12,.72);backdrop-filter:blur(10px)}
 .auth-card{position:relative;width:min(400px,92vw);background:linear-gradient(180deg,rgba(16,28,46,.97),rgba(8,15,27,.98));border:1px solid rgba(233,181,88,.3);border-radius:22px;padding:36px 34px 30px;box-shadow:0 40px 90px rgba(0,0,0,.6);animation:pop .35s cubic-bezier(.2,1.4,.4,1)}
@@ -238,13 +252,14 @@ footer{position:relative;z-index:2;text-align:center;padding:0 20px 26px;color:r
 </header>
 
 <main class="arena" id="arena">
+  <div class="embers" id="embers"></div>
   <div class="tagline">自动发邮件 · 查看邮件状态</div>
   <div class="stage" id="stage">
     <div class="zone" id="zoneL" role="button" tabindex="0" aria-label="发起批量触达">
       <div class="fighter"><div class="aura"></div><img src="/static/fighter-left.webp" alt="触达信使"></div>
       <button class="btn btn-gold plate" tabindex="-1">发起批量触达</button>
     </div>
-    <div class="vs"><div class="vs-badge">VS</div></div>
+    <div class="vs"><svg class="burst" viewBox="0 0 100 100"><polygon points="50.0,1.0 53.9,30.4 68.8,4.7 61.1,33.4 84.6,15.4 66.6,38.9 95.3,31.2 69.6,46.1 99.0,50.0 69.6,53.9 95.3,68.8 66.6,61.1 84.6,84.6 61.1,66.6 68.8,95.3 53.9,69.6 50.0,99.0 46.1,69.6 31.2,95.3 38.9,66.6 15.4,84.6 33.4,61.1 4.7,68.8 30.4,53.9 1.0,50.0 30.4,46.1 4.7,31.2 33.4,38.9 15.4,15.4 38.9,33.4 31.2,4.7 46.1,30.4" fill="#F5B93F"/></svg><div class="vs-badge">VS</div></div>
     <div class="zone" id="zoneR" role="button" tabindex="0" aria-label="进入数据大盘">
       <div class="fighter"><div class="aura"></div><img src="/static/fighter-right.webp" alt="大盘观测者"></div>
       <button class="btn btn-glass plate" tabindex="-1">进入数据大盘</button>
@@ -282,6 +297,22 @@ footer{position:relative;z-index:2;text-align:center;padding:0 20px 26px;color:r
     right: { el: document.getElementById('zoneR'), target: '/dashboard' }
   };
   var busy = false, ptimers = {};
+  (function(){
+    var box = document.getElementById('embers');
+    if (!box || reduce) return;
+    for (var i = 0; i < 16; i++) {
+      var e = document.createElement('span');
+      e.className = 'ember';
+      var sz = 3 + Math.random() * 4.5;
+      e.style.width = sz + 'px'; e.style.height = sz + 'px';
+      e.style.left = (2 + Math.random() * 96) + '%';
+      e.style.bottom = (-2 + Math.random() * 26) + '%';
+      e.style.setProperty('--sway', (Math.random() * 80 - 40) + 'px');
+      e.style.animationDuration = (6 + Math.random() * 7) + 's';
+      e.style.animationDelay = (-Math.random() * 12) + 's';
+      box.appendChild(e);
+    }
+  })();
 
   /* ---------- 声音（默认关，点小喇叭开启） ---------- */
   var actx = null, soundOn = false;
