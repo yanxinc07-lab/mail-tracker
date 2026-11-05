@@ -100,15 +100,23 @@
         notice.style.display = "none";
         main.style.display = "block";
 
-        const [ovResp, usResp, regResp] = await Promise.all([
-          fetch("/api/admin/overview", { headers: await authHeaders() }),
-          fetch("/api/admin/users", { headers: await authHeaders() }),
-          fetch("/api/registration-status"),
+        const readJson = async (resp) => {
+          const text = await resp.text();
+          try { return { ok: resp.ok, data: JSON.parse(text) }; }
+          catch (e) { return { ok: false, data: { detail: "服务器返回异常（HTTP " + resp.status + "）：" + text.slice(0, 120) } }; }
+        };
+        const [ovR, usR, regR] = await Promise.all([
+          fetch("/api/admin/overview", { headers: await authHeaders() }).then(readJson),
+          fetch("/api/admin/users", { headers: await authHeaders() }).then(readJson),
+          fetch("/api/registration-status").then(readJson),
         ]);
-        const ov = await ovResp.json();
-        const us = await usResp.json();
-        const reg = await regResp.json();
-        if (!ovResp.ok) { notice.style.display = "block"; notice.innerText = ov.detail || "全站数据加载失败"; return; }
+        const ov = ovR.data || {};
+        const us = usR.data || {};
+        const reg = regR.data || {};
+        const errs = [];
+        if (!ovR.ok) errs.push(ov.detail || "全站概览加载失败");
+        if (!usR.ok) errs.push(us.detail || "用户列表加载失败");
+        if (errs.length) { notice.style.display = "block"; notice.innerText = errs.join("；"); }
 
         const tiles = [
           [ov.today_sent, "今日已发（全站）"],
@@ -121,8 +129,8 @@
           [ov.accounts_total, "全站绑号总数"],
           [(reg.used != null ? reg.used : "—") + " / " + (reg.cap != null ? reg.cap : "—"), "注册名额（他人）"],
         ];
-        document.getElementById("statGrid").innerHTML = tiles.map(t =>
-          '<div class="stat-tile"><div class="stat-num">' + t[0] + '</div><div class="stat-lbl">' + t[1] + "</div></div>").join("");
+        document.getElementById("statGrid").innerHTML = ovR.ok ? tiles.map(t =>
+          '<div class="stat-tile"><div class="stat-num">' + t[0] + '</div><div class="stat-lbl">' + t[1] + "</div></div>").join("") : "";
 
         const tbody = document.getElementById("usersBody");
         if (!us.users || us.users.length === 0) {
