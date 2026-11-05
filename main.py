@@ -18,7 +18,7 @@ from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders as mime_encoders
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -78,6 +78,16 @@ def _db_query(sql: str, params=()):
 SENDER_COOKIE_NAME = "is_sender_device"
 SENDER_COOKIE_MAX_AGE = 365 * 24 * 3600  # 一年
 MAX_EMAILS_PER_TASK = 1000  # 单批收件人硬上限（与前端导入上限一致，防误发）
+
+# 站长管理（fix23，用户 2026-11-05 定版）：站长本人不限量；其他用户最多绑
+# NONOWNER_MAX_ACCOUNTS 个发信账号、每人每天合计最多发 NONOWNER_DAILY_CAP 封；
+# 新用户注册名额封顶 REGISTRATION_CAP 位（不含站长）。站长判定：登录邮箱在
+# OWNER_EMAILS 内，或 user_id 是全站第一个绑号的账号（站长是最早的用户，
+# 兜底防止站长登录邮箱与名单不一致时把站长自己限住）。
+OWNER_EMAILS = {"yanxinc07@gmail.com"}
+NONOWNER_MAX_ACCOUNTS = 3
+NONOWNER_DAILY_CAP = 60
+REGISTRATION_CAP = 20
 
 # 商品链接行默认值：一律为空。早期自用时曾写死站长的商品链接，多用户后任何账号
 # 打开都会被预填站长的广告（2026-11-03 用户发现），故清空；链接由用户在界面里填。
@@ -177,12 +187,80 @@ def _verify_user_id(authorization: Optional[str]) -> str:
         sub = payload.get("sub")
         if not sub:
             raise ValueError("no sub")
+        _USER_EMAILS[sub] = payload.get("email") or ""
+        _touch_registry(sub)
         return sub
     except HTTPException:
         raise
     except Exception as e:
         print(f"auth verify failed: {e}")
     raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+
+
+_USER_EMAILS = {}        # user_id -> 登录邮箱（验签时顺手记下）
+_REGISTRY_SEEN = set()   # 本进程已登记过的 user_id，避免每个请求都写注册表
+
+
+def _touch_registry(user_id: str):
+    """把登录用户登记进 user_registry：注册名额计数与监控室名单的数据源。
+    每个进程对每个用户只写一次；失败只记日志，绝不能拖垮验签本身。"""
+    if user_id in _REGISTRY_SEEN:
+        return
+    _REGISTRY_SEEN.add(user_id)
+    try:
+        _db_exec(
+            "INSERT INTO user_registry (user_id, email) VALUES (%s, %s) "
+            "ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, last_seen = now()",
+            (user_id, _USER_EMAILS.get(user_id) or None))
+    except Exception as e:
+        print(f"registry touch failed: {e}")
+
+
+def _is_owner(user_id: str) -> bool:
+    email = (_USER_EMAILS.get(user_id) or "").lower()
+    if email in OWNER_EMAILS:
+        return True
+    try:
+        rows = _db_query("SELECT user_id FROM sender_accounts ORDER BY created_at LIMIT 1")
+        return bool(rows) and rows[0]["user_id"] == user_id
+    except Exception:
+        return False
+
+
+def _is_banned(user_id: str) -> bool:
+    try:
+        rows = _db_query("SELECT banned FROM user_registry WHERE user_id = %s", (user_id,))
+        return bool(rows) and bool(rows[0].get("banned"))
+    except Exception:
+        return False
+
+
+def _today_start_utc_iso() -> str:
+    """北京时间今日 0 点换算成 UTC 的 ISO 文本。emails.send_time 存的是 UTC
+    ISO 文本，同格式字符串可直接比较大小。"""
+    cst = timezone(timedelta(hours=8))
+    start_local = datetime.now(cst).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start_local.astimezone(timezone.utc).isoformat()
+
+
+def _sent_today_count(user_id: str) -> int:
+    rows = _db_query(
+        "SELECT COUNT(*) AS n FROM emails WHERE user_id = %s AND status = 'sent' AND send_time >= %s",
+        (user_id, _today_start_utc_iso()))
+    return int(rows[0]["n"]) if rows else 0
+
+
+def _check_user_can_send(user_id: str, n_new: int):
+    """他人发送闸口（站长豁免）：被封禁拒绝；今日已发 + 本批封数超过每日合计上限拒绝。"""
+    if _is_owner(user_id):
+        return
+    if _is_banned(user_id):
+        raise HTTPException(status_code=403, detail="该账号已被停用，请联系站长")
+    sent = _sent_today_count(user_id)
+    if sent + n_new > NONOWNER_DAILY_CAP:
+        raise HTTPException(status_code=400, detail=(
+            f"已达每日发送上限：你今天已发 {sent} 封，每位用户每天最多 {NONOWNER_DAILY_CAP} 封"
+            f"（名下所有账号合计），本批 {n_new} 封发不了，请删减名单或明天再发"))
 
 
 def _fernet() -> Fernet:
@@ -243,6 +321,9 @@ def _startup_housekeeping():
         _db_exec("ALTER TABLE emails ADD COLUMN IF NOT EXISTS task_id text")
         _db_exec("CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, "
                  "key text NOT NULL, value text, PRIMARY KEY (user_id, key))")
+        _db_exec("CREATE TABLE IF NOT EXISTS user_registry (user_id text PRIMARY KEY, "
+                 "email text, first_seen timestamptz DEFAULT now(), "
+                 "last_seen timestamptz DEFAULT now(), banned boolean DEFAULT false)")
         _db_exec("ALTER TABLE send_tasks ADD COLUMN IF NOT EXISTS payload text")
         _db_exec("UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')")
     except Exception as e:
@@ -742,6 +823,7 @@ async def create_batch_task(req: BatchTaskRequest, background_tasks: BackgroundT
     accounts = _load_user_accounts(user_id)
     if not accounts:
         raise HTTPException(status_code=400, detail="还没有发信账号，请先在账号区添加（云端保存）")
+    _check_user_can_send(user_id, len(req.emails))
     req.user_id = user_id
     req.accounts = accounts
     task_id = _launch_task(user_id, req, background_tasks)
@@ -995,6 +1077,7 @@ async def continue_task(task_id: str, background_tasks: BackgroundTasks,
     accounts = _load_user_accounts(user_id)
     if not accounts:
         raise HTTPException(status_code=400, detail="还没有发信账号，请先在账号区添加（云端保存）")
+    _check_user_can_send(user_id, len(remaining))
     req = BatchTaskRequest(
         emails=[EmailItem(**e) for e in remaining],
         daily_cap=payload.get("daily_cap", 50),
@@ -1071,7 +1154,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix22-jumpprogress"}
+    return {"v": "v5-fix23-admin"}
 
 
 @app.get("/api/accounts")
@@ -1094,6 +1177,13 @@ async def add_account(body: AccountIn, authorization: Optional[str] = Header(def
         raise HTTPException(status_code=400, detail="邮箱格式不对")
     if not body.password.strip():
         raise HTTPException(status_code=400, detail="授权码不能为空")
+    if not _is_owner(user_id):
+        if _is_banned(user_id):
+            raise HTTPException(status_code=403, detail="该账号已被停用，请联系站长")
+        rows = _db_query("SELECT email FROM sender_accounts WHERE user_id = %s", (user_id,))
+        existing = {r["email"] for r in rows}
+        if email not in existing and len(existing) >= NONOWNER_MAX_ACCOUNTS:
+            raise HTTPException(status_code=400, detail=f"发信账号已达上限：每位用户最多绑 {NONOWNER_MAX_ACCOUNTS} 个发信账号")
     _db_exec(
         "INSERT INTO sender_accounts (user_id, email, pass_enc) VALUES (%s, %s, %s) "
         "ON CONFLICT (user_id, email) DO UPDATE SET pass_enc = EXCLUDED.pass_enc",
@@ -1106,6 +1196,124 @@ async def delete_account(account_id: str, authorization: Optional[str] = Header(
     user_id = _verify_user_id(authorization)
     _db_exec("DELETE FROM sender_accounts WHERE id = %s AND user_id = %s",
              (account_id, user_id))
+    return {"success": True}
+
+
+# ==========================================
+# 站长管理：限额自查 / 注册名额 / 监控室（fix23）
+# ==========================================
+def _iso_or_none(v):
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+@app.get("/api/me")
+async def api_me(authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    info = {"email": _USER_EMAILS.get(user_id) or "", "is_owner": _is_owner(user_id)}
+    if not info["is_owner"]:
+        try:
+            rows = _db_query("SELECT COUNT(*) AS n FROM sender_accounts WHERE user_id = %s", (user_id,))
+            info["limits"] = {
+                "accounts_used": int(rows[0]["n"]) if rows else 0,
+                "accounts_cap": NONOWNER_MAX_ACCOUNTS,
+                "sent_today": _sent_today_count(user_id),
+                "daily_cap": NONOWNER_DAILY_CAP,
+            }
+        except Exception as e:
+            print(f"api_me limits failed: {e}")
+    return info
+
+
+@app.get("/api/registration-status")
+async def registration_status():
+    """注册名额：注册表里非站长用户数 < REGISTRATION_CAP 才开放。查不到库时默认开放，
+    别因为计数故障把正常注册堵死（发送侧另有限额硬闸）。"""
+    try:
+        rows = _db_query("SELECT email FROM user_registry")
+        used = sum(1 for r in rows if (r.get("email") or "").lower() not in OWNER_EMAILS)
+    except Exception:
+        used = 0
+    return {"open": used < REGISTRATION_CAP, "used": used, "cap": REGISTRATION_CAP}
+
+
+def _require_owner(user_id: str):
+    if not _is_owner(user_id):
+        raise HTTPException(status_code=403, detail="只有站长能进监控室")
+
+
+@app.get("/api/admin/overview")
+async def admin_overview(authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    _require_owner(user_id)
+    start = _today_start_utc_iso()
+
+    def _count(sql, params=()):
+        rows = _db_query(sql, params)
+        return int(rows[0]["n"]) if rows else 0
+
+    reg_rows = _db_query("SELECT email, banned FROM user_registry")
+    return {
+        "today_sent": _count("SELECT COUNT(*) AS n FROM emails WHERE status = 'sent' AND send_time >= %s", (start,)),
+        "today_failed": _count("SELECT COUNT(*) AS n FROM emails WHERE status = 'failed' AND send_time >= %s", (start,)),
+        "today_opened": _count("SELECT COUNT(*) AS n FROM emails WHERE open_count > 0 AND send_time >= %s", (start,)),
+        "total_sent": _count("SELECT COUNT(*) AS n FROM emails WHERE status = 'sent'"),
+        "running_tasks": sum(1 for t in TASKS.values() if t.get("status") in ("running", "paused")),
+        "users_total": len(reg_rows),
+        "users_banned": sum(1 for r in reg_rows if r.get("banned")),
+        "accounts_total": _count("SELECT COUNT(*) AS n FROM sender_accounts"),
+    }
+
+
+@app.get("/api/admin/users")
+async def admin_users(authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    _require_owner(user_id)
+    start = _today_start_utc_iso()
+    first_rows = _db_query("SELECT user_id FROM sender_accounts ORDER BY created_at LIMIT 1")
+    first_uid = first_rows[0]["user_id"] if first_rows else None
+    rows = _db_query(
+        "SELECT r.user_id, r.email, r.first_seen, r.banned, "
+        "(SELECT COUNT(*) FROM sender_accounts a WHERE a.user_id = r.user_id) AS accounts, "
+        "(SELECT COUNT(*) FROM emails e WHERE e.user_id = r.user_id AND e.status = 'sent') AS sent_total, "
+        "(SELECT COUNT(*) FROM emails e WHERE e.user_id = r.user_id AND e.status = 'sent' AND e.send_time >= %s) AS sent_today, "
+        "(SELECT MAX(e.send_time) FROM emails e WHERE e.user_id = r.user_id) AS last_sent "
+        "FROM user_registry r ORDER BY r.first_seen", (start,))
+    out = []
+    for r in rows:
+        out.append({
+            "user_id": r["user_id"],
+            "email": r.get("email") or "",
+            "is_owner": ((r.get("email") or "").lower() in OWNER_EMAILS) or r["user_id"] == first_uid,
+            "banned": bool(r.get("banned")),
+            "accounts": int(r.get("accounts") or 0),
+            "sent_total": int(r.get("sent_total") or 0),
+            "sent_today": int(r.get("sent_today") or 0),
+            "first_seen": _iso_or_none(r.get("first_seen")),
+            "last_sent": r.get("last_sent"),
+        })
+    return {"users": out}
+
+
+@app.post("/api/admin/users/{target_id}/ban")
+async def admin_ban_user(target_id: str, authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    _require_owner(user_id)
+    if target_id == user_id or _is_owner(target_id):
+        raise HTTPException(status_code=400, detail="站长账号不能封禁")
+    _db_exec("UPDATE user_registry SET banned = true WHERE user_id = %s", (target_id,))
+    stopped = 0
+    for t in TASKS.values():
+        if t.get("user_id") == target_id and t.get("status") in ("running", "paused"):
+            t["status"] = "stopped"
+            stopped += 1
+    return {"success": True, "stopped_tasks": stopped}
+
+
+@app.post("/api/admin/users/{target_id}/unban")
+async def admin_unban_user(target_id: str, authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    _require_owner(user_id)
+    _db_exec("UPDATE user_registry SET banned = false WHERE user_id = %s", (target_id,))
     return {"success": True}
 
 
@@ -1146,6 +1354,13 @@ async def outreach_page(request: Request):
 @app.get("/progress", response_class=HTMLResponse)
 async def progress_page(request: Request):
     return _page_with_sender_cookie("progress.html", request)
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """站长监控室页面壳：数据全走 /api/admin/* 接口，接口侧验站长身份，
+    非站长打开只会看到无权限提示，拿不到任何全站数据。"""
+    return _serve_page_file("admin.html")
 
 
 @app.get("/preview-home", response_class=HTMLResponse)
@@ -1193,6 +1408,7 @@ def _pixel_response() -> Response:
 async def send_batch_emails(req: SendBatchRequest,
                             authorization: Optional[str] = Header(default=None)):
     req.user_id = _verify_user_id(authorization)
+    _check_user_can_send(req.user_id, len(req.emails))
     _check_inline_image_sizes(req.emails)
     if len(req.emails) > MAX_EMAILS_PER_TASK:
         raise HTTPException(status_code=400, detail=f"单批最多 {MAX_EMAILS_PER_TASK} 位收件人，请删减名单后重试")
