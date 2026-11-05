@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>站长监控室 — MailTracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background-color: #F3F6F4;
+      color: #202D26;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { max-width: 1060px; margin: 0 auto; padding: 36px 24px 80px; }
+    .header-box { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+    .title { font-family: 'Noto Serif SC', serif; font-size: 20px; font-weight: 700; color: #17221C; }
+    .nav-links { display: flex; gap: 8px; }
+    .nav-btn {
+      text-decoration: none; padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 500;
+      color: #5E7267; background: #FFFFFF; border: 1px solid rgba(36, 51, 44, 0.1);
+      transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .nav-btn:hover { background: #EAEFEA; color: #17221C; }
+    .nav-btn.active { background: #2D6A4F; color: #FFFFFF; border-color: #2D6A4F; }
+    .card {
+      background: #FFFFFF; border-radius: 18px; padding: 28px;
+      border: 1px solid rgba(36, 51, 44, 0.06); box-shadow: 0 4px 20px rgba(36, 51, 44, 0.03);
+      margin-bottom: 24px;
+    }
+    .section-title { font-size: 15px; font-weight: 700; color: #17221C; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+    .stat-tile { background: #EEF4F0; border: 1px solid #D8E6DC; border-radius: 12px; padding: 14px 12px; text-align: center; }
+    .stat-num { font-size: 24px; font-weight: 800; color: #17221C; }
+    .stat-lbl { font-size: 12px; color: #5E7267; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: #5E7267; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #E3ECE5; white-space: nowrap; }
+    td { padding: 9px 10px; border-bottom: 1px solid #EEF2EE; vertical-align: middle; }
+    .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .tag-owner { background: #FFF3CD; color: #8a6d00; }
+    .tag-ok { background: #E2F2E6; color: #2D6A4F; }
+    .tag-banned { background: #FDE3E3; color: #C62828; }
+    .btn-ban, .btn-unban {
+      padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid;
+    }
+    .btn-ban { background: rgba(239,68,68,0.08); color: #C62828; border-color: rgba(239,68,68,0.3); }
+    .btn-ban:hover { background: rgba(239,68,68,0.18); }
+    .btn-unban { background: rgba(45,106,79,0.08); color: #2D6A4F; border-color: rgba(45,106,79,0.3); }
+    .btn-unban:hover { background: rgba(45,106,79,0.18); }
+    .btn-refresh { padding: 6px 14px; background: #2D6A4F; color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .notice {
+      background: #FFF8E1; border: 1px solid #FFE082; border-radius: 12px;
+      padding: 18px; font-size: 14px; color: #795548; line-height: 1.7;
+    }
+    .foot-note { font-size: 12px; color: #78909C; text-align: center; margin-top: 4px; }
+  </style>
+  <script>
+    const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_yVVewqmlY0RGqNX87n_j_Q_oT47OEzK";
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    async function authHeaders() {
+      const { data: { session } } = await client.auth.getSession();
+      const h = { "Content-Type": "application/json" };
+      if (session && session.access_token) h["Authorization"] = "Bearer " + session.access_token;
+      return h;
+    }
+    function escHtml(v) { return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+    function fmtTime(v) {
+      if (!v) return "—";
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return escHtml(String(v).slice(0, 16));
+      return d.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    async function loadAdmin() {
+      const notice = document.getElementById("noticeBox");
+      const main = document.getElementById("adminMain");
+      try {
+        const meResp = await fetch("/api/me", { headers: await authHeaders() });
+        if (!meResp.ok) {
+          notice.style.display = "block";
+          notice.innerHTML = "你还没登录。先去 <a href='/'>首页</a> 登录站长账号，再回来打开监控室。";
+          main.style.display = "none";
+          return;
+        }
+        const me = await meResp.json();
+        if (!me.is_owner) {
+          notice.style.display = "block";
+          notice.innerHTML = "当前登录的邮箱是 <b>" + escHtml(me.email || "(未知)") + "</b>，不是站长账号，监控室只对站长开放。<br>如果你就是站长、但用的是另一个邮箱登录，把这个邮箱发给开发方登记一下就行。";
+          main.style.display = "none";
+          return;
+        }
+        notice.style.display = "none";
+        main.style.display = "block";
+
+        const [ovResp, usResp, regResp] = await Promise.all([
+          fetch("/api/admin/overview", { headers: await authHeaders() }),
+          fetch("/api/admin/users", { headers: await authHeaders() }),
+          fetch("/api/registration-status"),
+        ]);
+        const ov = await ovResp.json();
+        const us = await usResp.json();
+        const reg = await regResp.json();
+        if (!ovResp.ok) { notice.style.display = "block"; notice.innerText = ov.detail || "全站数据加载失败"; return; }
+
+        const tiles = [
+          [ov.today_sent, "今日已发（全站）"],
+          [ov.today_failed, "今日失败"],
+          [ov.today_opened, "今日被打开"],
+          [ov.running_tasks, "进行中任务"],
+          [ov.total_sent, "累计已发"],
+          [ov.users_total, "注册用户"],
+          [ov.users_banned, "已封禁"],
+          [ov.accounts_total, "全站绑号总数"],
+          [(reg.used != null ? reg.used : "—") + " / " + (reg.cap != null ? reg.cap : "—"), "注册名额（他人）"],
+        ];
+        document.getElementById("statGrid").innerHTML = tiles.map(t =>
+          '<div class="stat-tile"><div class="stat-num">' + t[0] + '</div><div class="stat-lbl">' + t[1] + "</div></div>").join("");
+
+        const tbody = document.getElementById("usersBody");
+        if (!us.users || us.users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="color:#78909C;">还没有注册用户记录（用户登录使用后会出现在这里）。</td></tr>';
+        } else {
+          tbody.innerHTML = us.users.map(u => {
+            const status = u.is_owner ? '<span class="tag tag-owner">站长</span>'
+              : (u.banned ? '<span class="tag tag-banned">已封禁</span>' : '<span class="tag tag-ok">正常</span>');
+            const act = u.is_owner ? '<span style="color:#B0BEC5;">—</span>'
+              : (u.banned
+                ? '<button class="btn-unban" onclick="unbanUser(\'' + u.user_id + '\')">解封</button>'
+                : '<button class="btn-ban" onclick="banUser(\'' + u.user_id + '\', \'' + escHtml(u.email).replace(/'/g, "") + '\')">封禁</button>');
+            return "<tr><td>" + escHtml(u.email || "(无邮箱)") + "</td><td>" + u.accounts + "</td><td>" + u.sent_today +
+              "</td><td>" + u.sent_total + "</td><td>" + fmtTime(u.first_seen) + "</td><td>" + fmtTime(u.last_sent) +
+              "</td><td>" + status + "</td><td>" + act + "</td></tr>";
+          }).join("");
+        }
+      } catch (e) {
+        notice.style.display = "block";
+        notice.innerText = "加载失败：" + e;
+      }
+    }
+
+    async function banUser(uid, email) {
+      if (!confirm("确定封禁 " + email + " 吗？封禁后他立刻不能再发信、不能再绑号，正在跑的任务也会被停掉。")) return;
+      const resp = await fetch("/api/admin/users/" + uid + "/ban", { method: "POST", headers: await authHeaders() });
+      const data = await resp.json();
+      if (!resp.ok) { alert(data.detail || "封禁失败"); return; }
+      alert("已封禁" + (data.stopped_tasks ? "，并停掉了他 " + data.stopped_tasks + " 个进行中的任务" : ""));
+      loadAdmin();
+    }
+    async function unbanUser(uid) {
+      const resp = await fetch("/api/admin/users/" + uid + "/unban", { method: "POST", headers: await authHeaders() });
+      const data = await resp.json();
+      if (!resp.ok) { alert(data.detail || "解封失败"); return; }
+      loadAdmin();
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      loadAdmin();
+      setInterval(loadAdmin, 30000);
+    });
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="header-box">
+      <div class="title">🛠 站长监控室</div>
+      <div class="nav-links">
+        <a href="/" class="nav-btn">🌊 官网首页</a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
+        <a href="/outreach" class="nav-btn">🚀 批量触达</a>
+        <a href="/admin" class="nav-btn active">🛠 站长监控室</a>
+      </div>
+    </div>
+
+    <div id="noticeBox" class="notice" style="display:none"></div>
+
+    <div id="adminMain" style="display:none">
+      <div class="card">
+        <div class="section-title"><span>全站今日（北京时间）</span><button class="btn-refresh" onclick="loadAdmin()">刷新</button></div>
+        <div class="stat-grid" id="statGrid"></div>
+      </div>
+      <div class="card">
+        <div class="section-title"><span>注册用户</span><span style="font-size:12px; color:#78909C; font-weight:400;">他人限额：最多绑 3 个号 · 每人每天合计 60 封 · 注册名额 20 位</span></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr><th>邮箱</th><th>绑号</th><th>今日已发</th><th>累计已发</th><th>注册时间</th><th>最近发送</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="foot-note">每 30 秒自动刷新 · 封禁立即生效：对方不能发信、不能绑号，进行中的任务一并停掉 · 站长本人（你）不受任何限额</div>
+    </div>
+  </div>
+</body>
+</html>

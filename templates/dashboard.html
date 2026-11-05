@@ -90,6 +90,7 @@
         <a href="/" class="nav-btn">🌊 官网首页</a>
         <a href="/dashboard" class="nav-btn active">📊 邮件追踪大盘</a>
         <a href="/outreach" class="nav-btn">🚀 批量触达</a>
+        <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
     </div>
     <div class="stats-grid">
@@ -104,5 +105,25 @@
       </table>
     </div>
   </div>
+
+<script>
+  // 站长监控室入口 + 他人限额提示（fix23）：问后端 /api/me，是站长才亮入口
+  (async () => {
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session || !session.access_token) return;
+      const r = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+      if (!r.ok) return;
+      const me = await r.json();
+      if (me.is_owner) {
+        const link = document.getElementById('adminNavLink');
+        if (link) link.style.display = '';
+      } else if (me.limits) {
+        const hint = document.getElementById('limitsHint');
+        if (hint) hint.textContent = '平台限额：最多绑 ' + me.limits.accounts_cap + ' 个发信账号（已绑 ' + me.limits.accounts_used + ' 个）· 每人每天合计最多发 ' + me.limits.daily_cap + ' 封（今日已发 ' + me.limits.sent_today + ' 封）';
+      }
+    } catch (e) {}
+  })();
+</script>
 </body>
 </html>

@@ -419,6 +419,16 @@
       msgEl.innerText = isRegisterMode ? '正在注册...' : '正在登录...';
 
       if (isRegisterMode) {
+        // 注册名额封顶（fix23）：满额就不再调 Supabase 注册
+        try {
+          const rs = await fetch('/api/registration-status');
+          const rj = await rs.json();
+          if (rj && rj.open === false) {
+            msgEl.style.color = '#ef4444';
+            msgEl.innerText = '注册名额已满，暂时停止新用户注册';
+            return;
+          }
+        } catch (e) { /* 状态接口异常时不拦注册，后端发送侧另有限额硬闸 */ }
         const { data, error } = await client.auth.signUp({ email, password });
         if (error) {
           msgEl.style.color = '#ef4444';
