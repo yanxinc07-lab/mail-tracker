@@ -13,6 +13,7 @@ import base64
 import threading
 from email import message_from_bytes
 from email.header import decode_header
+from email.utils import parsedate_to_datetime, parseaddr
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
@@ -316,6 +317,281 @@ def _load_user_accounts(user_id: str) -> List[SmtpAccount]:
     return accounts
 
 
+# ==========================================
+# 回复巡逻（fix26，用户 2026-11-04 定版）：多邮箱统一盯梢
+# ----------------------------------------------------------
+# 定版口径：有回信就报，不管内容——不做内容分类、不专门过滤自动回复；
+# 退信发件人不是收件人本人地址，按“发件人是否在已发送名单里”匹配天然不算。
+# 只存标题行（发件人/主题/日期），绝不存正文。巡逻用发信账号已存的应用专用
+# 密码走 IMAP 只读检查 INBOX 邮件头，用户零额外配置。
+# 范围：只巡逻近 30 天有发送记录的用户（emails 表不记发信账号，落到用户后
+# 巡逻其名下全部发信账号）。每约 7 分钟一轮；单账号失败只记日志并退避，
+# 巡逻线程是 daemon 且全程异常捕获，绝不拖垮主服务。
+# 环境变量 REPLY_WATCH=off 可整体关闭。
+# ==========================================
+REPLY_WATCH_ENABLED = os.getenv("REPLY_WATCH", "on").strip().lower() not in ("off", "0", "false", "no")
+REPLY_WATCH_INTERVAL = 7 * 60          # 每轮间隔（秒）
+REPLY_WATCH_SINCE_DAYS = 30            # 只巡逻近 30 天有发送的用户
+REPLY_WATCH_FETCH_CAP = 300            # 单账号单轮最多处理的新邮件头数（水位推进，下一轮续）
+_REPLY_WATCH_BACKOFF_SECONDS = 20 * 60  # 单账号失败后的退避时长
+_REPLY_WATCH_STARTED = False
+_REPLY_WATCH_START_LOCK = threading.Lock()
+_REPLY_WATCH_ROUND_LOCK = threading.Lock()
+_REPLY_WATCH_BACKOFF: Dict[str, float] = {}
+
+_REPLIES_ENSURED = False
+
+
+def _ensure_replies():
+    """确保 replies 表存在（懒补建，沿 fix24 的 _ensure_registry 模式：
+    启动自检万一漏建，用到的地方自己补，进程内只真正执行一次）。"""
+    global _REPLIES_ENSURED
+    if _REPLIES_ENSURED:
+        return
+    _db_exec("CREATE TABLE IF NOT EXISTS replies (id text PRIMARY KEY, user_id text, "
+             "account_email text, from_email text, from_name text, subject text, "
+             "received_at timestamptz, gmail_thrid text, gmail_msgid text, "
+             "message_id text, task_id text, created_at timestamptz DEFAULT now(), "
+             "UNIQUE (account_email, message_id))")
+    _db_exec("CREATE INDEX IF NOT EXISTS idx_replies_user ON replies (user_id, received_at DESC)")
+    _db_exec("CREATE INDEX IF NOT EXISTS idx_replies_task ON replies (task_id)")
+    _REPLIES_ENSURED = True
+
+
+_IMAP_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _imap_since_str(dt: datetime) -> str:
+    """IMAP SINCE 的日期格式 dd-Mon-yyyy（月份名按 RFC 写死英文，不吃进程 locale）。"""
+    return f"{dt.day:02d}-{_IMAP_MONTHS[dt.month - 1]}-{dt.year}"
+
+
+def _parse_from_header(raw) -> tuple:
+    """From 头 → (发件人邮箱小写, 显示名)。解析不出邮箱时邮箱为空串。"""
+    name, addr = parseaddr(raw or "")
+    return (addr or "").strip().lower(), _decode_mime_header(name).strip()
+
+
+def _parse_msg_datetime(raw) -> Optional[datetime]:
+    """Date 头 → 带时区的 datetime；解析不了返回 None（调用方用当前时间兜底）。"""
+    try:
+        dt = parsedate_to_datetime(raw)
+    except Exception:
+        return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _gmail_reply_link(account_email: str, gmail_thrid, gmail_msgid, from_email: str) -> str:
+    """回复直达 Gmail 的链接（2026-11-04 补充定版）：有谷歌内部编号就直达会话，
+    带 authuser 切到正确的发信邮箱；没有编号就退回按发件人搜索的兜底链接。"""
+    ident = gmail_thrid or gmail_msgid
+    if ident:
+        return f"https://mail.google.com/mail/u/?authuser={account_email}#inbox/{ident}"
+    return f"https://mail.google.com/mail/u/?authuser={account_email}#search/from%3A{from_email}"
+
+
+def _imap_fetch_headers(account_email: str, password: str, since: datetime,
+                        expect_uv: Optional[str] = None, after_uid: int = 0,
+                        cap: int = REPLY_WATCH_FETCH_CAP):
+    """只读拉取 INBOX 邮件头（不取正文）。返回 (uidvalidity, [(uid, headers)])，
+    headers 含 from/subject/date/message_id/gmail_thrid/gmail_msgid。
+    只返回 uid 大于水位的（uidvalidity 与水位记录一致时才按水位过滤），升序、最多 cap 封。
+    登录/连接失败抛异常，由调用方记日志并退避。"""
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
+    try:
+        mail.login(account_email, password)
+        typ, _ = mail.select("INBOX", readonly=True)
+        if typ != "OK":
+            raise RuntimeError("select INBOX failed")
+        uidvalidity = "0"
+        try:
+            _t, d = mail.response("UIDVALIDITY")
+            if d and d[0]:
+                uidvalidity = (d[0].decode() if isinstance(d[0], bytes) else str(d[0])).strip()
+        except Exception:
+            pass
+        eff_after = after_uid if (expect_uv and expect_uv == uidvalidity) else 0
+        typ, data = mail.uid("SEARCH", None, "SINCE", _imap_since_str(since))
+        if typ != "OK":
+            raise RuntimeError("uid search failed")
+        uids = []
+        if data and data[0]:
+            uids = [int(x) for x in data[0].split()]
+        uids = sorted(u for u in uids if u > eff_after)[:cap]
+        out = []
+        for uid in uids:
+            typ, fdata = mail.uid(
+                "FETCH", str(uid),
+                "(X-GM-THRID X-GM-MSGID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])")
+            if typ != "OK" or not fdata:
+                continue
+            meta, raw_headers = b"", None
+            for item in fdata:
+                if isinstance(item, tuple):
+                    meta = item[0] or b""
+                    raw_headers = item[1]
+                    break
+            if raw_headers is None:
+                continue
+            if isinstance(meta, str):
+                meta = meta.encode()
+            thrid_m = re.search(rb"X-GM-THRID\s+(\d+)", meta)
+            msgid_m = re.search(rb"X-GM-MSGID\s+(\d+)", meta)
+            msg = message_from_bytes(raw_headers)
+            out.append((uid, {
+                "from": msg.get("From") or "",
+                "subject": _decode_mime_header(msg.get("Subject")),
+                "date": msg.get("Date") or "",
+                "message_id": (msg.get("Message-ID") or "").strip(),
+                "gmail_thrid": thrid_m.group(1).decode() if thrid_m else None,
+                "gmail_msgid": msgid_m.group(1).decode() if msgid_m else None,
+            }))
+        return uidvalidity, out
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+
+
+def _reply_watermark_get(user_id: str, account_email: str) -> dict:
+    """巡逻水位存 user_settings（key=reply_watch:<账号>）：{uv, uid, ts}，没有返回空 dict。"""
+    try:
+        rows = _db_query("SELECT value FROM user_settings WHERE user_id = %s AND key = %s",
+                         (user_id, f"reply_watch:{account_email}"))
+        if rows and rows[0].get("value"):
+            return json.loads(rows[0]["value"]) or {}
+    except Exception as e:
+        print(f"reply watermark get failed: {e}")
+    return {}
+
+
+def _reply_watermark_set(user_id: str, account_email: str, wm: dict):
+    try:
+        _db_exec("INSERT INTO user_settings (user_id, key, value) VALUES (%s, %s, %s) "
+                 "ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value",
+                 (user_id, f"reply_watch:{account_email}", json.dumps(wm)))
+    except Exception as e:
+        print(f"reply watermark set failed: {e}")
+
+
+def _poll_account_replies(user_id: str, account: SmtpAccount,
+                          sent_latest: Dict[str, Optional[str]]) -> int:
+    """巡逻一个发信账号：把发件人命中已发送名单的新邮件记入 replies，返回新增条数。
+    sent_latest: 收件人邮箱（小写）→ 最近一次任务 id（归属用）。"""
+    email = account.email
+    if _REPLY_WATCH_BACKOFF.get(email, 0) > time.time():
+        return 0
+    wm = _reply_watermark_get(user_id, email)
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=REPLY_WATCH_SINCE_DAYS)
+    if wm.get("ts"):
+        try:
+            # SINCE 只有日期粒度：从水位时间再往前让 2 天，靠 UID 水位 + 唯一键保证不漏不重
+            since = datetime.fromisoformat(wm["ts"]) - timedelta(days=2)
+        except Exception:
+            pass
+    uidvalidity, headers = _imap_fetch_headers(
+        email, account.password, since,
+        expect_uv=wm.get("uv"), after_uid=int(wm.get("uid") or 0))
+    new_count = 0
+    max_uid = int(wm.get("uid") or 0) if wm.get("uv") == uidvalidity else 0
+    for uid, h in headers:
+        max_uid = max(max_uid, uid)
+        from_email, from_name = _parse_from_header(h.get("from"))
+        if not from_email or from_email not in sent_latest:
+            continue
+        mid = h.get("message_id") or (
+            f"x-gm-msgid:{h['gmail_msgid']}" if h.get("gmail_msgid")
+            else f"uid:{uidvalidity}:{uid}")
+        exists = _db_query(
+            "SELECT id FROM replies WHERE account_email = %s AND message_id = %s",
+            (email, mid))
+        if exists:
+            continue
+        received = _parse_msg_datetime(h.get("date")) or now
+        _db_exec(
+            "INSERT INTO replies (id, user_id, account_email, from_email, from_name, "
+            "subject, received_at, gmail_thrid, gmail_msgid, message_id, task_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (account_email, message_id) DO NOTHING",
+            (uuid.uuid4().hex, user_id, email, from_email, from_name or None,
+             h.get("subject") or None, received, h.get("gmail_thrid"),
+             h.get("gmail_msgid"), mid, sent_latest.get(from_email)))
+        new_count += 1
+    _reply_watermark_set(user_id, email,
+                         {"uv": uidvalidity, "uid": max_uid, "ts": now.isoformat()})
+    return new_count
+
+
+def _reply_watch_round():
+    """一轮巡逻：近 30 天有发送的用户，逐个账号查回复。单用户/单账号失败不影响其他。"""
+    if not _REPLY_WATCH_ROUND_LOCK.acquire(blocking=False):
+        return
+    try:
+        _ensure_replies()
+        since_iso = (datetime.now(timezone.utc)
+                     - timedelta(days=REPLY_WATCH_SINCE_DAYS)).isoformat()
+        users = _db_query(
+            "SELECT DISTINCT user_id::text AS uid FROM emails "
+            "WHERE status = 'sent' AND send_time >= %s", (since_iso,))
+        for u in users:
+            user_id = u["uid"]
+            try:
+                sent_rows = _db_query(
+                    "SELECT DISTINCT ON (lower(recipient)) lower(recipient) AS rcpt, task_id "
+                    "FROM emails WHERE user_id = %s AND status = 'sent' "
+                    "ORDER BY lower(recipient), send_time DESC", (user_id,))
+                sent_latest = {r["rcpt"]: r.get("task_id")
+                               for r in sent_rows if r.get("rcpt")}
+                if not sent_latest:
+                    continue
+                for account in _load_user_accounts(user_id):
+                    try:
+                        n = _poll_account_replies(user_id, account, sent_latest)
+                        if n:
+                            print(f"reply watch: {account.email} 新增回复 {n} 条")
+                    except Exception as e:
+                        _REPLY_WATCH_BACKOFF[account.email] = (
+                            time.time() + _REPLY_WATCH_BACKOFF_SECONDS)
+                        print(f"reply watch account failed {account.email}: {e}")
+            except Exception as e:
+                print(f"reply watch user failed {user_id}: {e}")
+    finally:
+        _REPLY_WATCH_ROUND_LOCK.release()
+
+
+def _reply_watch_loop():
+    while True:
+        try:
+            _reply_watch_round()
+        except Exception as e:
+            print(f"reply watch round failed: {e}")
+        slept = 0
+        while slept < REPLY_WATCH_INTERVAL:
+            step = min(15, REPLY_WATCH_INTERVAL - slept)
+            time.sleep(step)
+            slept += step
+
+
+def start_reply_watch():
+    """启动回复巡逻线程（进程内只启一次；REPLY_WATCH=off 时不启）。"""
+    global _REPLY_WATCH_STARTED
+    if not REPLY_WATCH_ENABLED:
+        return
+    with _REPLY_WATCH_START_LOCK:
+        if _REPLY_WATCH_STARTED:
+            return
+        _REPLY_WATCH_STARTED = True
+    threading.Thread(target=_reply_watch_loop, daemon=True, name="reply-watch").start()
+    print("reply watch started")
+
+
 def _sync_task_db(task: dict):
     """把内存任务的进度同步到 send_tasks 表（尽力而为，失败只记日志）。"""
     try:
@@ -343,12 +619,20 @@ def _startup_housekeeping():
         "email text, first_seen timestamptz DEFAULT now(), "
         "last_seen timestamptz DEFAULT now(), banned boolean DEFAULT false)",
         "ALTER TABLE send_tasks ADD COLUMN IF NOT EXISTS payload text",
+        "CREATE TABLE IF NOT EXISTS replies (id text PRIMARY KEY, user_id text, "
+        "account_email text, from_email text, from_name text, subject text, "
+        "received_at timestamptz, gmail_thrid text, gmail_msgid text, "
+        "message_id text, task_id text, created_at timestamptz DEFAULT now(), "
+        "UNIQUE (account_email, message_id))",
+        "CREATE INDEX IF NOT EXISTS idx_replies_user ON replies (user_id, received_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_replies_task ON replies (task_id)",
         "UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')",
     ):
         try:
             _db_exec(stmt)
         except Exception as e:
             print(f"startup housekeeping stmt failed: {e} :: {stmt[:60]}")
+    start_reply_watch()
 
 # 挂载静态目录与模板
 if os.path.exists("static"):
@@ -967,6 +1251,19 @@ async def search_recipient(q: str = "", authorization: Optional[str] = Header(de
     return {"matches": rows}
 
 
+@app.get("/api/tasks/reply-counts")
+async def task_reply_counts(authorization: Optional[str] = Header(default=None)):
+    """每个任务的回复数（进度页任务行显示用）：{task_id: 条数}，只统计当前用户的。
+    注：进度页的任务列表本身是前端直查 Supabase 的 send_tasks，没有后端列表接口，
+    故回复数走这个独立小接口，前端按 task_id 合并进任务行。"""
+    user_id = _verify_user_id(authorization)
+    _ensure_replies()
+    rows = _db_query(
+        "SELECT task_id, COUNT(*) AS n FROM replies "
+        "WHERE user_id = %s AND task_id IS NOT NULL GROUP BY task_id", (user_id,))
+    return {"counts": {r["task_id"]: int(r["n"]) for r in rows}}
+
+
 @app.get("/api/tasks/{task_id}")
 async def get_batch_task(task_id: str, authorization: Optional[str] = Header(default=None)):
     return _public_task(_owned_task(task_id, authorization))
@@ -999,7 +1296,7 @@ async def stop_batch_task(task_id: str, authorization: Optional[str] = Header(de
 # ==========================================
 def _task_row(task_id: str, user_id: str):
     rows = _db_query(
-        "SELECT id, status, total, sent, failed, skipped, subject, created_at, payload "
+        "SELECT id, status, total, sent, failed, skipped, subject, created_at, payload, accounts "
         "FROM send_tasks WHERE id = %s AND user_id = %s", (task_id, user_id))
     return rows[0] if rows else None
 
@@ -1116,6 +1413,122 @@ async def continue_task(task_id: str, background_tasks: BackgroundTasks,
             "skipped_done": skipped_done}
 
 
+_HARD_BOUNCE_CODES = ("550", "551", "553")
+_HARD_BOUNCE_WORDS = ("不存在", "user not found", "no such user", "address not found",
+                      "recipient address rejected", "mailbox not found",
+                      "invalid recipient", "does not exist")
+
+
+def _is_hard_bounce_error(err) -> bool:
+    """硬退信口径（再发一轮排除用）：SMTP 550/551/553，或文案明确说地址不存在。
+    拿不准的一律 False——宁可保留在名单里，也不错杀一个还能联系的人。"""
+    if not err:
+        return False
+    s = str(err)
+    if any(code in s for code in _HARD_BOUNCE_CODES):
+        return True
+    low = s.lower()
+    return any(w in low for w in _HARD_BOUNCE_WORDS)
+
+
+def _extract_recipient_name(subject_template: str, rendered_subject: str) -> str:
+    """从主题模板与某封已渲染主题的差异里反推 {{name}} 当时被替换成的值。
+    快照里只存了渲染后的主题/正文，没存名单的名字列；主题模板里有 {{name}} 时
+    可以这样把名字找回来，推不出就返回空串（前端名单里名字留空，用户可补）。"""
+    if not subject_template or not rendered_subject:
+        return ""
+    m = re.search(r"\{\{\s*name\s*\}\}", subject_template, re.IGNORECASE)
+    if not m:
+        return ""
+    pre, post = subject_template[:m.start()], subject_template[m.end():]
+    if not rendered_subject.startswith(pre):
+        return ""
+    if post and not rendered_subject.endswith(post):
+        return ""
+    end = len(rendered_subject) - len(post) if post else len(rendered_subject)
+    if end < len(pre):
+        return ""
+    return rendered_subject[len(pre):end].strip()
+
+
+def _restore_content_template(subject_template: str, first_email: dict) -> str:
+    """正文模板还原：快照里的正文是已渲染的（{{name}} 已被换成第一位收件人的名字），
+    把推断出的名字换回 {{name}}，新一轮发送时前端会按每位收件人重新替换。
+    推不出名字就原样返回（用户在发信页可再改）。"""
+    content = first_email.get("content") or ""
+    name = _extract_recipient_name(subject_template or "",
+                                   first_email.get("subject") or "")
+    if name and name in content:
+        content = content.replace(name, "{{name}}")
+    return content
+
+
+@app.post("/api/tasks/{task_id}/clone-prefill")
+async def clone_task_prefill(task_id: str, authorization: Optional[str] = Header(default=None)):
+    """再发一轮（定版形态：克隆已完成任务做新一轮触达）：从原任务快照还原一份
+    发信页预填数据，只还原、不发送，用户在发信页可改可不改、自己点开始。
+    名单 = 原任务全部收件人 − 已回复的人（replies 表）− 原任务里硬退信的人。"""
+    user_id = _verify_user_id(authorization)
+    row = _task_row(task_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    payload = None
+    if row.get("payload"):
+        try:
+            payload = json.loads(row["payload"])
+        except Exception:
+            payload = None
+    if not payload or not payload.get("emails"):
+        raise HTTPException(status_code=400,
+                            detail="这个任务是旧版本创建的，当时没有保存名单和正文，无法再发一轮；请重新准备名单发送")
+    originals = payload["emails"]
+    _ensure_replies()
+    replied = {r["from_email"] for r in _db_query(
+        "SELECT DISTINCT lower(from_email) AS from_email FROM replies WHERE user_id = %s",
+        (user_id,))}
+    hard = set()
+    for r in _db_query(
+            "SELECT lower(recipient) AS rcpt, error FROM emails "
+            "WHERE task_id = %s AND user_id = %s AND status = 'failed'", (task_id, user_id)):
+        if _is_hard_bounce_error(r.get("error")):
+            hard.add(r["rcpt"])
+    kept, n_replied, n_hard = [], 0, 0
+    for e in originals:
+        em = (e.get("to_email") or "").strip().lower()
+        if em in replied:
+            n_replied += 1
+            continue
+        if em in hard:
+            n_hard += 1
+            continue
+        kept.append(e)
+    subject_template = payload.get("subject_template") or (
+        originals[0].get("subject") if originals else "")
+    recipients = [{
+        "email": e.get("to_email") or "",
+        "name": _extract_recipient_name(subject_template, e.get("subject") or ""),
+    } for e in kept]
+    accounts = [a.strip() for a in (row.get("accounts") or "").split(",") if a.strip()]
+    base_name = payload.get("batch_name") or ""
+    return {
+        "success": True,
+        "accounts": accounts,
+        "subject_template": subject_template,
+        "content": _restore_content_template(subject_template, kept[0]) if kept else "",
+        "batch_name": (base_name + "·再发") if base_name else "再发一轮",
+        "recipients": recipients,
+        "daily_cap": payload.get("daily_cap", 50),
+        "interval_seconds": payload.get("interval_seconds", 0),
+        "interval_max_seconds": payload.get("interval_max_seconds", 0),
+        "link_enabled": payload.get("link_enabled", False),
+        "link_url": payload.get("link_url", ""),
+        "link_text": payload.get("link_text", ""),
+        "excluded": {"replied": n_replied, "hard_bounce": n_hard},
+        "original_total": len(originals),
+        "kept_total": len(kept),
+    }
+
+
 @app.post("/api/tasks/{task_id}/terminate")
 async def terminate_task(task_id: str, authorization: Optional[str] = Header(default=None)):
     """终止任务：任务还活着（在本进程内存里）就真停；只剩数据库里一行记录的
@@ -1166,6 +1579,48 @@ async def save_link_setting(payload: LinkSettingIn,
 
 
 # ==========================================
+# 回复列表接口（fix26）：数据来自回复巡逻写入的 replies 表，只读展示，
+# 每行带好直达 Gmail 的链接，前端点了就跳过去由用户本人精聊。
+# ==========================================
+@app.get("/api/replies")
+async def list_replies(limit: int = 100, authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    _ensure_replies()
+    try:
+        limit = max(1, min(int(limit or 100), 500))
+    except Exception:
+        limit = 100
+    rows = _db_query(
+        "SELECT id, account_email, from_email, from_name, subject, received_at, "
+        "gmail_thrid, gmail_msgid, task_id, created_at FROM replies "
+        "WHERE user_id = %s ORDER BY received_at DESC NULLS LAST, created_at DESC LIMIT %s",
+        (user_id, limit))
+    subjects = {}
+    task_ids = list({r["task_id"] for r in rows if r.get("task_id")})
+    if task_ids:
+        for t in _db_query(
+                "SELECT id, subject FROM send_tasks WHERE user_id = %s AND id = ANY(%s)",
+                (user_id, task_ids)):
+            subjects[t["id"]] = t["subject"]
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"],
+            "account_email": r["account_email"],
+            "from_email": r["from_email"],
+            "from_name": r["from_name"] or "",
+            "subject": r["subject"] or "",
+            "received_at": _iso_or_none(r.get("received_at")),
+            "task_id": r.get("task_id"),
+            "task_subject": subjects.get(r.get("task_id")),
+            "gmail_url": _gmail_reply_link(r["account_email"], r.get("gmail_thrid"),
+                                           r.get("gmail_msgid"), r["from_email"]),
+        })
+    total_rows = _db_query("SELECT COUNT(*) AS n FROM replies WHERE user_id = %s", (user_id,))
+    return {"replies": out, "total": int(total_rows[0]["n"]) if total_rows else 0}
+
+
+# ==========================================
 # 发信账号接口（云端保存，授权码加密；前端永远看不到明文）
 # ==========================================
 class AccountIn(BaseModel):
@@ -1175,7 +1630,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix25-uuidcast"}
+    return {"v": "v5-fix26-replies"}
 
 
 @app.get("/api/accounts")
@@ -1398,6 +1853,12 @@ async def outreach_page(request: Request):
 @app.get("/progress", response_class=HTMLResponse)
 async def progress_page(request: Request):
     return _page_with_sender_cookie("progress.html", request)
+
+
+@app.get("/replies", response_class=HTMLResponse)
+async def replies_page(request: Request):
+    """回复页：巡逻发现的回信汇总，点一条直达 Gmail 原信。"""
+    return _page_with_sender_cookie("replies.html", request)
 
 
 @app.get("/admin", response_class=HTMLResponse)
