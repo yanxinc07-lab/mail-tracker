@@ -1175,7 +1175,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix24-adminfix"}
+    return {"v": "v5-fix25-uuidcast"}
 
 
 @app.get("/api/accounts")
@@ -1313,12 +1313,14 @@ async def _admin_users_impl():
     start = _today_start_utc_iso()
     first_rows = _db_query("SELECT user_id FROM sender_accounts ORDER BY created_at LIMIT 1")
     first_uid = first_rows[0]["user_id"] if first_rows else None
+    # 注意：sender_accounts/emails 的 user_id 是 uuid 型，本表的 user_id 是 text，
+    # 两列直接相比 Postgres 报 uuid = text 无此运算符（fix24 实测）——一律把 uuid 列转 text 再比
     rows = _db_query(
         "SELECT r.user_id, r.email, r.first_seen, r.banned, "
-        "(SELECT COUNT(*) FROM sender_accounts a WHERE a.user_id = r.user_id) AS accounts, "
-        "(SELECT COUNT(*) FROM emails e WHERE e.user_id = r.user_id AND e.status = 'sent') AS sent_total, "
-        "(SELECT COUNT(*) FROM emails e WHERE e.user_id = r.user_id AND e.status = 'sent' AND e.send_time >= %s) AS sent_today, "
-        "(SELECT MAX(e.send_time) FROM emails e WHERE e.user_id = r.user_id) AS last_sent "
+        "(SELECT COUNT(*) FROM sender_accounts a WHERE a.user_id::text = r.user_id) AS accounts, "
+        "(SELECT COUNT(*) FROM emails e WHERE e.user_id::text = r.user_id AND e.status = 'sent') AS sent_total, "
+        "(SELECT COUNT(*) FROM emails e WHERE e.user_id::text = r.user_id AND e.status = 'sent' AND e.send_time >= %s) AS sent_today, "
+        "(SELECT MAX(e.send_time) FROM emails e WHERE e.user_id::text = r.user_id) AS last_sent "
         "FROM user_registry r ORDER BY r.first_seen", (start,))
     out = []
     for r in rows:
