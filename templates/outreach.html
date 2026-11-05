@@ -347,7 +347,47 @@
       setupDragAndDrop();
       setupRichEditor();
       loadCopywritingList();
+      applyClonePrefill();
       reattachRunningTask();
+    }
+
+    // 「再发一轮」预填（fix26）：从进度页跳过来时 localStorage 里有一份后端还原的
+    // 名单与内容（已排除回复过的人和硬退信的人），填进表单让用户过目、可改，
+    // 用后立即清除，不自动发送——发不发由用户自己点开始。
+    function applyClonePrefill() {
+      let raw = null;
+      try { raw = localStorage.getItem("clonePrefill"); } catch (e) {}
+      if (!raw) return;
+      let p = null;
+      try { p = JSON.parse(raw); } catch (e) {}
+      try { localStorage.removeItem("clonePrefill"); } catch (e) {}
+      if (!p || !p.success) return;
+      const subj = document.getElementById("emailSubject");
+      if (subj && p.subject_template) subj.value = p.subject_template;
+      if (p.content) setBodyContent(p.content);
+      parsedRecipients = (p.recipients || [])
+        .map(r => ({ name: r.name || "", email: r.email || "" }))
+        .filter(r => r.email && r.email.includes("@"));
+      renderPreview();
+      const bn = document.getElementById("batchName");
+      if (bn && p.batch_name) bn.value = p.batch_name;
+      const ivMin = document.getElementById("intervalMin");
+      const ivMax = document.getElementById("intervalMax");
+      if (ivMin && p.interval_seconds > 0) ivMin.value = Math.round(p.interval_seconds / 60 * 10) / 10;
+      if (ivMax && p.interval_max_seconds > 0) ivMax.value = Math.round(p.interval_max_seconds / 60 * 10) / 10;
+      updateRealtimePreview();
+      const banner = document.getElementById("clonePrefillBanner");
+      if (banner) {
+        const ex = p.excluded || {};
+        const nEx = (ex.replied || 0) + (ex.hard_bounce || 0);
+        banner.style.display = "block";
+        banner.innerHTML = "🔁 已载入再发一轮：原 " + (p.original_total != null ? p.original_total : parsedRecipients.length)
+          + " 人，排除 " + nEx + " 人（已回复 " + (ex.replied || 0) + "、硬退信 " + (ex.hard_bounce || 0)
+          + "），本轮 " + parsedRecipients.length + " 人。主题、正文、名单都可以改，确认后点「🚀 开始批量触达」发送。"
+          + (p.accounts && p.accounts.length
+            ? "<br>原任务使用的发信账号：" + p.accounts.join("、") + "（发送时仍用你当前云端保存的账号轮换）"
+            : "");
+      }
     }
 
     function setupDragAndDrop() {
@@ -1101,6 +1141,7 @@
         <a href="/" class="nav-btn">🌊 官网首页</a>
         <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
         <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
+        <a href="/replies" class="nav-btn">💬 回复<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
     </div>
@@ -1110,6 +1151,8 @@
       <a href="/progress" class="sub-tab">📋 发送进度</a>
     </div>
 
+    <div id="clonePrefillBanner" style="display:none; background:#FFF8E1; border:1px solid #FFE082; border-radius:12px; padding:12px 16px; font-size:13px; color:#795548; line-height:1.7; margin-bottom:16px;"></div>
+
     <!-- 1. 发信账号（云端） -->
     <div class="card">
       <div class="section-title">
@@ -1117,6 +1160,7 @@
       </div>
       <div id="accountsList"></div>
       <div id="limitsHint" style="font-size:12px; color:#B07D2B; margin-top:6px;"></div>
+      <div style="font-size:12px; color:#8C9C92; margin-top:4px;">💡 建议：单个邮箱每天发 30~50 封为宜，把发送间隔拉开、别扎堆；发多发少由你决定，账号安全风险自担。</div>
       <div class="account-row" style="margin-top:10px;">
         <input type="text" id="newAccEmail" class="form-input" placeholder="发信邮箱 (如 name@gmail.com)" autocomplete="off" />
         <input type="password" id="newAccPass" class="form-input" placeholder="16位专用授权码" autocomplete="new-password" />
@@ -1334,6 +1378,21 @@
         const hint = document.getElementById('limitsHint');
         if (hint) hint.textContent = '平台限额：最多绑 ' + me.limits.accounts_cap + ' 个发信账号（已绑 ' + me.limits.accounts_used + ' 个）· 每人每天合计最多发 ' + me.limits.daily_cap + ' 封（今日已发 ' + me.limits.sent_today + ' 封）';
       }
+    } catch (e) {}
+  })();
+</script>
+
+<script>
+  // 回复总数徽标（fix26）：有回复就在「💬 回复」入口上亮出总数
+  (async () => {
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session || !session.access_token) return;
+      const r = await fetch('/api/replies?limit=1', { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+      if (!r.ok) return;
+      const d = await r.json();
+      const b = document.getElementById('replyNavBadge');
+      if (b && (d.total || 0) > 0) { b.textContent = d.total; b.style.display = 'inline-block'; }
     } catch (e) {}
   })();
 </script>

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>回复 — MailTracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background-color: #F3F6F4;
+      color: #202D26;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 'Plus Jakarta Sans', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { max-width: 1060px; margin: 0 auto; padding: 36px 24px 80px; }
+    .header-box { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+    .title { font-family: 'Noto Serif SC', serif; font-size: 20px; font-weight: 700; color: #17221C; }
+    .nav-links { display: flex; gap: 8px; }
+    .nav-btn {
+      text-decoration: none; padding: 7px 16px; border-radius: 999px; font-size: 13px;
+      font-weight: 500; color: #5E7267; background: #FFFFFF;
+      border: 1px solid rgba(36, 51, 44, 0.1); transition: all 0.2s ease;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .nav-btn:hover { background: #EAEFEA; color: #17221C; }
+    .nav-btn.active { background: #2D6A4F; color: #FFFFFF; border-color: #2D6A4F; }
+    .card {
+      background: #FFFFFF; border-radius: 18px; padding: 28px;
+      border: 1px solid rgba(36, 51, 44, 0.06);
+      box-shadow: 0 4px 20px rgba(36, 51, 44, 0.03); margin-bottom: 24px;
+    }
+    .section-title { font-size: 15px; font-weight: 700; color: #17221C; margin-bottom: 8px; }
+    .help-hint { font-size: 11px; color: #8C9C92; margin-top: 4px; line-height: 1.5; }
+    .reply-row {
+      display: block; text-decoration: none; color: inherit;
+      border: 1px solid rgba(36, 51, 44, 0.08); border-radius: 12px;
+      padding: 13px 16px; margin-top: 10px; background: #FBFDFB; transition: 0.2s;
+    }
+    .reply-row:hover { background: #EFF6F1; border-color: rgba(45, 106, 79, 0.35); }
+    .reply-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+    .reply-from { font-size: 14px; font-weight: 700; color: #17221C; }
+    .reply-from .mail { font-weight: 500; color: #5E7267; font-size: 12.5px; margin-left: 6px; }
+    .reply-time { font-size: 12px; color: #8C9C92; white-space: nowrap; }
+    .reply-subject { font-size: 13.5px; color: #2F4A3C; margin-top: 5px; word-break: break-all; }
+    .reply-meta { font-size: 12px; color: #7A8B81; margin-top: 5px; }
+    .nav-badge {
+      display: none; background: #C62828; color: #fff; border-radius: 999px;
+      font-size: 11px; font-weight: 700; padding: 1px 7px; margin-left: 2px;
+    }
+  </style>
+  <script>
+    const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_yVVewqmlY0RGqNX87n_j_Q_oT47OEzK";
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let currentUser = null;
+
+    async function initAuth() {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session || !session.user) {
+        alert("请先登录账号后进入工作台！");
+        window.location.href = "/";
+        return;
+      }
+      currentUser = session.user;
+      loadReplies();
+      setInterval(loadReplies, 60000);
+      showAdminLink();
+    }
+
+    async function authHeaders() {
+      const { data: { session } } = await client.auth.getSession();
+      const h = { "Content-Type": "application/json" };
+      if (session && session.access_token) h["Authorization"] = "Bearer " + session.access_token;
+      return h;
+    }
+
+    function escHtml(v) { return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+    async function loadReplies() {
+      const box = document.getElementById("replyList");
+      const badge = document.getElementById("replyNavBadge");
+      if (!box || !currentUser) return;
+      try {
+        const resp = await fetch("/api/replies?limit=200", { headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) {
+          box.innerHTML = '<div style="color:#C62828; font-size:13px; padding:8px 0;">加载失败：' + escHtml(data.detail || "未知错误") + '</div>';
+          return;
+        }
+        const list = data.replies || [];
+        if (badge) {
+          badge.textContent = data.total || 0;
+          badge.style.display = (data.total || 0) > 0 ? "inline-block" : "none";
+        }
+        if (list.length === 0) {
+          box.innerHTML = '<div style="color:#78909C; font-size:13px; padding:10px 0;">暂时还没有发现回复。系统每隔几分钟会去你的各个发信邮箱里巡逻一圈，有人回复了就会出现在这里。</div>';
+          return;
+        }
+        box.innerHTML = "";
+        list.forEach(r => {
+          const a = document.createElement("a");
+          a.className = "reply-row";
+          a.href = r.gmail_url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          const when = r.received_at ? new Date(r.received_at).toLocaleString() : "-";
+          const taskTxt = r.task_subject ? escHtml(r.task_subject) : (r.task_id ? "某一批任务" : "（未归属任务）");
+          a.innerHTML = `
+            <div class="reply-top">
+              <span class="reply-from">${escHtml(r.from_name || r.from_email)}<span class="mail">${escHtml(r.from_email)}</span></span>
+              <span class="reply-time">${when}</span>
+            </div>
+            <div class="reply-subject">${escHtml(r.subject || "(无主题)")}</div>
+            <div class="reply-meta">回在邮箱 ${escHtml(r.account_email)} · 来自任务「${taskTxt}」 · 点开直达 Gmail 原信 →</div>
+          `;
+          box.appendChild(a);
+        });
+      } catch (e) {
+        box.innerHTML = '<div style="color:#C62828; font-size:13px; padding:8px 0;">加载失败：' + escHtml(String(e)) + '</div>';
+      }
+    }
+
+    async function showAdminLink() {
+      try {
+        const { data: { session } } = await client.auth.getSession();
+        if (!session || !session.access_token) return;
+        const r = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+        if (!r.ok) return;
+        const me = await r.json();
+        if (me.is_owner) {
+          const link = document.getElementById('adminNavLink');
+          if (link) link.style.display = '';
+        }
+      } catch (e) {}
+    }
+
+    window.addEventListener('DOMContentLoaded', initAuth);
+  </script>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header-box">
+      <div class="title">🚀 批量触达工作台</div>
+      <div class="nav-links">
+        <a href="/" class="nav-btn">🌊 官网首页</a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
+        <a href="/outreach" class="nav-btn">🚀 批量触达</a>
+        <a href="/replies" class="nav-btn active">💬 回复<span id="replyNavBadge" class="nav-badge"></span></a>
+        <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span>💬 回复汇总</span></div>
+      <span class="help-hint">系统每隔几分钟巡逻你名下所有发信邮箱的收件箱，发现有人回复了你发出的信，就汇总到这里。点任意一条会新开 Gmail 直达那封原信（会按发信邮箱切到对应账号），由你本人接着聊；这里只负责发现和指路，不存邮件正文。</span>
+      <div id="replyList" style="margin-top:8px;">
+        <div style="color:#78909C; font-size:13px; padding:10px 0;">正在加载…</div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

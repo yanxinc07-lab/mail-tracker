@@ -349,9 +349,18 @@
 
     const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已终止", failed: "❌ 失败", interrupted: "⚠️ 已中断", continued: "↪️ 已续发" };
 
+    let replyCounts = {};
+    async function refreshReplyCounts() {
+      try {
+        const r = await fetch("/api/tasks/reply-counts", { headers: await authHeaders() });
+        if (r.ok) { const d = await r.json(); replyCounts = d.counts || {}; }
+      } catch (e) {}
+    }
+
     async function loadTaskList() {
       const tbody = document.getElementById("taskListBody");
       if (!tbody || !currentUser) return;
+      await refreshReplyCounts();
       const { data, error } = await client.from("send_tasks").select("*").order("created_at", { ascending: false }).limit(20);
       if (error) return;
       tbody.innerHTML = "";
@@ -374,9 +383,25 @@
         if (t.status === "running" || t.status === "paused") {
           statusCell += `<div style="margin-top:5px; background:#E7EEE9; border-radius:6px; height:8px; width:110px; overflow:hidden;"><div style="height:100%; width:${pct}%; background:#2D6A4F;"></div></div><div style="font-size:11px; color:#5E7267; margin-top:3px;">已处理 ${doneN}/${t.total} · ${pct}%</div>`;
         }
+        const replyN = replyCounts[t.id] || 0;
+        if (replyN > 0) {
+          statusCell += `<div style="margin-top:4px;"><a href="/replies" onclick="event.stopPropagation();" style="color:#2D6A4F; font-weight:700; font-size:12px; text-decoration:none;">💬 ${replyN} 条回复</a></div>`;
+        }
+        let hasPayload = false;
+        try {
+          const pl0 = typeof t.payload === "string" ? JSON.parse(t.payload) : t.payload;
+          hasPayload = !!(pl0 && Array.isArray(pl0.emails) && pl0.emails.length);
+        } catch (e) { hasPayload = false; }
         let acts = `<button type="button" class="task-act-btn" onclick="event.stopPropagation(); openTaskDetail('${t.id}')">明细</button>`;
         if (["interrupted", "failed", "stopped"].includes(t.status)) {
           acts += ` <button type="button" class="task-act-btn" onclick="event.stopPropagation(); continueTask('${t.id}')">继续发送</button>`;
+        }
+        if (["done", "stopped", "interrupted"].includes(t.status)) {
+          if (hasPayload) {
+            acts += ` <button type="button" class="task-act-btn" onclick="event.stopPropagation(); cloneTask('${t.id}')">再发一轮</button>`;
+          } else {
+            acts += ` <button type="button" class="task-act-btn" disabled title="这个任务是旧版本创建的，当时没有保存名单和正文，无法再发一轮" style="opacity:.45; cursor:not-allowed;">再发一轮</button>`;
+          }
         }
         if (["running", "paused", "interrupted", "failed"].includes(t.status)) {
           acts += ` <button type="button" class="task-act-btn danger" onclick="event.stopPropagation(); terminateTask('${t.id}')">终止</button>`;
@@ -505,6 +530,16 @@
       } catch (e) { alert("继续失败：" + e); }
     }
 
+    async function cloneTask(taskId) {
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/clone-prefill", { method: "POST", headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.detail || "再发一轮准备失败"); return; }
+        try { localStorage.setItem("clonePrefill", JSON.stringify(data)); } catch (e) {}
+        window.location.href = "/outreach";
+      } catch (e) { alert("再发一轮准备失败：" + e); }
+    }
+
     async function terminateTask(taskId) {
       if (!confirm("终止这个任务？终止后没发的人不会再发（之后还可以用「继续发送」捡起来）。")) return;
       try {
@@ -556,6 +591,7 @@
         <a href="/" class="nav-btn">🌊 官网首页</a>
         <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
         <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
+        <a href="/replies" class="nav-btn">💬 回复<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
     </div>
@@ -616,6 +652,21 @@
         const hint = document.getElementById('limitsHint');
         if (hint) hint.textContent = '平台限额：最多绑 ' + me.limits.accounts_cap + ' 个发信账号（已绑 ' + me.limits.accounts_used + ' 个）· 每人每天合计最多发 ' + me.limits.daily_cap + ' 封（今日已发 ' + me.limits.sent_today + ' 封）';
       }
+    } catch (e) {}
+  })();
+</script>
+
+<script>
+  // 回复总数徽标（fix26）：有回复就在「💬 回复」入口上亮出总数
+  (async () => {
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session || !session.access_token) return;
+      const r = await fetch('/api/replies?limit=1', { headers: { 'Authorization': 'Bearer ' + session.access_token } });
+      if (!r.ok) return;
+      const d = await r.json();
+      const b = document.getElementById('replyNavBadge');
+      if (b && (d.total || 0) > 0) { b.textContent = d.total; b.style.display = 'inline-block'; }
     } catch (e) {}
   })();
 </script>
