@@ -201,6 +201,23 @@ _USER_EMAILS = {}        # user_id -> 登录邮箱（验签时顺手记下）
 _REGISTRY_SEEN = set()   # 本进程已登记过的 user_id，避免每个请求都写注册表
 
 
+_REGISTRY_ENSURED = False
+
+
+def _ensure_registry():
+    """确保 user_registry 表存在（进程内只真正执行一次）。
+    fix23 上线后监控室 500 的教训：建表原本只挂在启动自检里，启动时任一
+    语句失败（整段一个 try）就会把建表一起跳过，之后每个查注册表的接口都
+    500。故改为懒补建：第一次用到时建，建好后本进程不再重复。"""
+    global _REGISTRY_ENSURED
+    if _REGISTRY_ENSURED:
+        return
+    _db_exec("CREATE TABLE IF NOT EXISTS user_registry (user_id text PRIMARY KEY, "
+             "email text, first_seen timestamptz DEFAULT now(), "
+             "last_seen timestamptz DEFAULT now(), banned boolean DEFAULT false)")
+    _REGISTRY_ENSURED = True
+
+
 def _touch_registry(user_id: str):
     """把登录用户登记进 user_registry：注册名额计数与监控室名单的数据源。
     每个进程对每个用户只写一次；失败只记日志，绝不能拖垮验签本身。"""
@@ -208,6 +225,7 @@ def _touch_registry(user_id: str):
         return
     _REGISTRY_SEEN.add(user_id)
     try:
+        _ensure_registry()
         _db_exec(
             "INSERT INTO user_registry (user_id, email) VALUES (%s, %s) "
             "ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, last_seen = now()",
@@ -317,17 +335,20 @@ def _startup_housekeeping():
     """启动自检：补齐新列；把数据库里残留的“进行中/已暂停”标成“已中断”——
     进程刚启动时内存里没有任何活任务，库里还挂着的一定是上次被重启/崩溃打断的，
     标出来后用户才能在进度页对它们点“继续发送”或“终止”。"""
-    try:
-        _db_exec("ALTER TABLE emails ADD COLUMN IF NOT EXISTS task_id text")
-        _db_exec("CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, "
-                 "key text NOT NULL, value text, PRIMARY KEY (user_id, key))")
-        _db_exec("CREATE TABLE IF NOT EXISTS user_registry (user_id text PRIMARY KEY, "
-                 "email text, first_seen timestamptz DEFAULT now(), "
-                 "last_seen timestamptz DEFAULT now(), banned boolean DEFAULT false)")
-        _db_exec("ALTER TABLE send_tasks ADD COLUMN IF NOT EXISTS payload text")
-        _db_exec("UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')")
-    except Exception as e:
-        print(f"startup housekeeping failed: {e}")
+    for stmt in (
+        "ALTER TABLE emails ADD COLUMN IF NOT EXISTS task_id text",
+        "CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, "
+        "key text NOT NULL, value text, PRIMARY KEY (user_id, key))",
+        "CREATE TABLE IF NOT EXISTS user_registry (user_id text PRIMARY KEY, "
+        "email text, first_seen timestamptz DEFAULT now(), "
+        "last_seen timestamptz DEFAULT now(), banned boolean DEFAULT false)",
+        "ALTER TABLE send_tasks ADD COLUMN IF NOT EXISTS payload text",
+        "UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')",
+    ):
+        try:
+            _db_exec(stmt)
+        except Exception as e:
+            print(f"startup housekeeping stmt failed: {e} :: {stmt[:60]}")
 
 # 挂载静态目录与模板
 if os.path.exists("static"):
@@ -1154,7 +1175,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix23-admin"}
+    return {"v": "v5-fix24-adminfix"}
 
 
 @app.get("/api/accounts")
@@ -1229,6 +1250,7 @@ async def registration_status():
     """注册名额：注册表里非站长用户数 < REGISTRATION_CAP 才开放。查不到库时默认开放，
     别因为计数故障把正常注册堵死（发送侧另有限额硬闸）。"""
     try:
+        _ensure_registry()
         rows = _db_query("SELECT email FROM user_registry")
         used = sum(1 for r in rows if (r.get("email") or "").lower() not in OWNER_EMAILS)
     except Exception:
@@ -1245,6 +1267,16 @@ def _require_owner(user_id: str):
 async def admin_overview(authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
     _require_owner(user_id)
+    try:
+        return await _admin_overview_impl()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"监控室概览查询出错：{type(e).__name__}: {e}")
+
+
+async def _admin_overview_impl():
+    _ensure_registry()
     start = _today_start_utc_iso()
 
     def _count(sql, params=()):
@@ -1268,6 +1300,16 @@ async def admin_overview(authorization: Optional[str] = Header(default=None)):
 async def admin_users(authorization: Optional[str] = Header(default=None)):
     user_id = _verify_user_id(authorization)
     _require_owner(user_id)
+    try:
+        return await _admin_users_impl()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"监控室用户列表查询出错：{type(e).__name__}: {e}")
+
+
+async def _admin_users_impl():
+    _ensure_registry()
     start = _today_start_utc_iso()
     first_rows = _db_query("SELECT user_id FROM sender_accounts ORDER BY created_at LIMIT 1")
     first_uid = first_rows[0]["user_id"] if first_rows else None
