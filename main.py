@@ -1810,7 +1810,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix35-navmerge"}
+    return {"v": "v5-fix36-onebtn"}
 
 
 @app.get("/api/accounts")
