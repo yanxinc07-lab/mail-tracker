@@ -487,6 +487,13 @@ def _poll_account_replies(user_id: str, account: SmtpAccount,
     email = account.email
     if _REPLY_WATCH_BACKOFF.get(email, 0) > time.time():
         return 0
+    # fix27：自有发信账号发出的信永不算回复。自发自测时收件人就是本人，
+    # 本人地址进了已发送名单，自测信落进本人 INBOX 后发件人（=本人账号）
+    # 会命中名单被误记成客户回复（用户 2026-11-06 截图实证）。这里是所有
+    # 邮件头记入 replies 的必经之路，排除必须落在这里而不是某个调用点。
+    own_emails = {(a.email or "").strip().lower()
+                  for a in _load_user_accounts(user_id)}
+    own_emails.add((email or "").strip().lower())
     wm = _reply_watermark_get(user_id, email)
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=REPLY_WATCH_SINCE_DAYS)
@@ -504,7 +511,9 @@ def _poll_account_replies(user_id: str, account: SmtpAccount,
     for uid, h in headers:
         max_uid = max(max_uid, uid)
         from_email, from_name = _parse_from_header(h.get("from"))
-        if not from_email or from_email not in sent_latest:
+        if not from_email or from_email in own_emails:
+            continue
+        if from_email not in sent_latest:
             continue
         mid = h.get("message_id") or (
             f"x-gm-msgid:{h['gmail_msgid']}" if h.get("gmail_msgid")
@@ -626,6 +635,9 @@ def _startup_housekeeping():
         "UNIQUE (account_email, message_id))",
         "CREATE INDEX IF NOT EXISTS idx_replies_user ON replies (user_id, received_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_replies_task ON replies (task_id)",
+        # fix27 存量清理：fix26 巡逻把自发自测信误记成的行（发件人=发信账号本人）
+        # 每次启动幂等删一遍，删完即净、无行可删时无害。
+        "DELETE FROM public.replies WHERE lower(from_email) = lower(account_email)",
         "UPDATE send_tasks SET status = 'interrupted' WHERE status IN ('running', 'paused')",
     ):
         try:
@@ -1630,7 +1642,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix26-replies"}
+    return {"v": "v5-fix27-replyfilter"}
 
 
 @app.get("/api/accounts")
