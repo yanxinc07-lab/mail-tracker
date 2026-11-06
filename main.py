@@ -1677,12 +1677,19 @@ _CST = ZoneInfo("Asia/Shanghai")
 
 def _dashboard_bounds(time_range: str, custom_start: str, custom_end: str):
     """把范围参数换算成 (start_iso, end_iso) UTC ISO 文本，None 表示不限。
-    end 为开区间上界（次日 00:00），等价于止日 23:59:59 且不丢毫秒级时间。
-    week/month/quarter 按「含今天共 N 个自然日」算：往前推 N-1 天的 00:00 起。
+    end 为开区间上界，等价于止日 23:59:59 且不丢毫秒级时间。
+    week/month/quarter 按自然日历周期算（fix31，用户拍板）：
+    week=本周一 00:00 至下周一 00:00；month=本月 1 日至下月 1 日；
+    quarter=本季度首月 1 日至下季度首月 1 日（均为北京时间）。
     自定义起止都有效时优先于 time_range；time_range 非法值按 all。"""
     def day_start_utc(d):
         return datetime(d.year, d.month, d.day, tzinfo=_CST) \
             .astimezone(timezone.utc).isoformat()
+
+    def add_months(d, n):
+        # d 恒为某月 1 日，只做年月平移
+        total = d.year * 12 + (d.month - 1) + n
+        return d.replace(year=total // 12, month=total % 12 + 1, day=1)
 
     cs = ce = None
     if custom_start and custom_end:
@@ -1703,11 +1710,14 @@ def _dashboard_bounds(time_range: str, custom_start: str, custom_end: str):
         y = today - timedelta(days=1)
         return day_start_utc(y), day_start_utc(today)
     if time_range == "week":
-        return day_start_utc(today - timedelta(days=6)), None
+        monday = today - timedelta(days=today.weekday())
+        return day_start_utc(monday), day_start_utc(monday + timedelta(days=7))
     if time_range == "month":
-        return day_start_utc(today - timedelta(days=29)), None
+        first = today.replace(day=1)
+        return day_start_utc(first), day_start_utc(add_months(first, 1))
     if time_range == "quarter":
-        return day_start_utc(today - timedelta(days=89)), None
+        qfirst = today.replace(month=3 * ((today.month - 1) // 3) + 1, day=1)
+        return day_start_utc(qfirst), day_start_utc(add_months(qfirst, 3))
     return None, None
 
 
@@ -1771,7 +1781,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix30-tracking"}
+    return {"v": "v5-fix31-calranges"}
 
 
 @app.get("/api/accounts")
