@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>邮件追踪大盘 — MailTracker</title>
+  <title>打开追踪 — MailTracker</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,6 +20,10 @@
       background: #FFFFFF; border: 1px solid rgba(36, 51, 44, 0.1); color: #5E7267; margin-left: 8px;
     }
     .nav-btn.active { background: #2D6A4F; color: #FFF; border-color: #2D6A4F; }
+    .sub-nav { display: flex; gap: 6px; margin: 16px 0 8px; background: #E7EEE9; padding: 6px; border-radius: 14px; }
+    .sub-tab { flex: 1; text-align: center; padding: 11px 0; border-radius: 10px; font-size: 15px; font-weight: 700; color: #46604F; text-decoration: none; transition: 0.2s; }
+    .sub-tab:hover { background: #DCE7DE; }
+    .sub-tab.active { background: #2D6A4F; color: #FFF; box-shadow: 0 2px 8px rgba(45,106,79,0.35); }
     .range-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
     .range-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
     .range-tab {
@@ -200,14 +204,18 @@
 <body>
   <div class="container">
     <div class="header-box">
-      <h2>📊 邮件追踪大盘</h2>
+      <h2>📊 打开追踪</h2>
       <div>
         <a href="/" class="nav-btn">🌊 官网首页</a>
-        <a href="/dashboard" class="nav-btn active">📊 邮件追踪大盘</a>
         <a href="/outreach" class="nav-btn">🚀 批量触达</a>
         <a href="/replies" class="nav-btn">💬 回复<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
+    </div>
+    <div class="sub-nav">
+      <a href="/outreach" class="sub-tab">✉️ 写信发送</a>
+      <a href="/progress" class="sub-tab">📋 发送进度</a>
+      <a href="/dashboard" class="sub-tab active">📊 打开追踪</a>
     </div>
     <div class="range-bar">
       <div class="range-tabs">

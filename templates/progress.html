@@ -589,7 +589,6 @@
       <div class="title">🚀 批量触达工作台</div>
       <div class="nav-links">
         <a href="/" class="nav-btn">🌊 官网首页</a>
-        <a href="/dashboard" class="nav-btn">📊 邮件追踪大盘</a>
         <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
         <a href="/replies" class="nav-btn">💬 回复<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
@@ -599,21 +598,19 @@
     <div class="sub-nav">
       <a href="/outreach" class="sub-tab">✉️ 写信发送</a>
       <a href="/progress" class="sub-tab active">📋 发送进度</a>
+      <a href="/dashboard" class="sub-tab">📊 打开追踪</a>
     </div>
 
     <div class="card">
-      <div class="section-title"><span>🔍 按邮箱找任务</span></div>
-      <span class="help-hint">想不起给某个人发过没有、在哪一批发的，在这里输邮箱搜一下就知道。</span>
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
-        <input type="text" id="recipientSearch" placeholder="输入收件人邮箱（或一部分）" style="flex:1; min-width:200px; border:1.5px solid #CFE0D5; border-radius:9px; padding:8px 12px; font-size:13px;" onkeydown="if (event.key === 'Enter') searchRecipient()" />
-        <button type="button" class="task-act-btn" style="padding:7px 16px;" onclick="searchRecipient()">搜索</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+        <div class="section-title" style="margin-bottom:0;"><span>📋 发送任务（进行中与历史记录）</span></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" id="recipientSearch" placeholder="输入收件人邮箱找任务（或一部分）" style="width:230px; border:1.5px solid #CFE0D5; border-radius:9px; padding:7px 12px; font-size:13px;" onkeydown="if (event.key === 'Enter') searchRecipient()" />
+          <button type="button" class="task-act-btn" style="padding:7px 16px;" onclick="searchRecipient()">搜索</button>
+        </div>
       </div>
+      <span class="help-hint">每批发送都会记在这里：进行中的每 5 秒自动刷新，完成的长期保留，服务器重启也不会丢。想不起给某个人发过没有，用右上角按邮箱搜一下就知道。</span>
       <div id="recipientSearchResult" style="margin-top:10px;"></div>
-    </div>
-
-    <div class="card">
-      <div class="section-title"><span>📋 发送任务（进行中与历史记录）</span></div>
-      <span class="help-hint">每批发送都会记在这里：进行中的每 5 秒自动刷新，完成的长期保留，服务器重启也不会丢。</span>
       <div style="overflow-x:auto;">
         <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
           <thead><tr style="text-align:left; color:#546E7A;">
