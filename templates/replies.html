@@ -47,7 +47,7 @@
     .reply-from { font-size: 14px; font-weight: 700; color: #17221C; }
     .reply-from .mail { font-weight: 500; color: #5E7267; font-size: 12.5px; margin-left: 6px; }
     .reply-time { font-size: 12px; color: #8C9C92; white-space: nowrap; }
-    .reply-subject { font-size: 13.5px; color: #2F4A3C; margin-top: 5px; word-break: break-all; }
+    .reply-subject { font-size: 15px; font-weight: 700; color: #17221C; margin-top: 6px; word-break: break-all; line-height: 1.45; }
     .reply-meta { font-size: 12px; color: #7A8B81; margin-top: 5px; }
     .nav-badge {
       display: none; background: #C62828; color: #fff; border-radius: 999px;
@@ -112,13 +112,15 @@
           a.rel = "noopener";
           const when = r.received_at ? new Date(r.received_at).toLocaleString() : "-";
           const taskTxt = r.task_subject ? escHtml(r.task_subject) : (r.task_id ? "某一批任务" : "（未归属任务）");
+          const who = r.from_name
+            ? `${escHtml(r.from_name)}<span class="mail">${escHtml(r.from_email)}</span>`
+            : escHtml(r.from_email);
           a.innerHTML = `
             <div class="reply-top">
-              <span class="reply-from">${escHtml(r.from_name || r.from_email)}<span class="mail">${escHtml(r.from_email)}</span></span>
-              <span class="reply-time">${when}</span>
+              <span class="reply-from">${who}</span>
             </div>
             <div class="reply-subject">${escHtml(r.subject || "(无主题)")}</div>
-            <div class="reply-meta">回在邮箱 ${escHtml(r.account_email)} · 来自任务「${taskTxt}」 · 点开直达 Gmail 原信 →</div>
+            <div class="reply-meta">回在邮箱 ${escHtml(r.account_email)} · 来自任务「${taskTxt}」 · ${when} · 点开直达 Gmail 原信 →</div>
           `;
           box.appendChild(a);
         });
