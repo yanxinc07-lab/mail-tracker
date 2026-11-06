@@ -1810,7 +1810,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix32-dashfix"}
+    return {"v": "v5-fix33-toggleplace"}
 
 
 @app.get("/api/accounts")
