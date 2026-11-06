@@ -20,6 +20,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders as mime_encoders
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -648,6 +649,10 @@ def _startup_housekeeping():
         "UNIQUE (account_email, message_id))",
         "CREATE INDEX IF NOT EXISTS idx_replies_user ON replies (user_id, received_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_replies_task ON replies (task_id)",
+        # fix30：打开流水表（恢复接手前原版的逐次打开记录），emails 只存汇总
+        "CREATE TABLE IF NOT EXISTS email_logs (log_id BIGSERIAL PRIMARY KEY, "
+        "email_id TEXT, open_time TEXT, is_scanner BOOLEAN DEFAULT FALSE)",
+        "CREATE INDEX IF NOT EXISTS idx_email_logs_email ON email_logs (email_id)",
         # fix27 存量清理：fix26 巡逻把自发自测信误记成的行（发件人=发信账号本人）
         # 每次启动幂等删一遍，删完即净、无行可删时无害。
         "DELETE FROM public.replies WHERE lower(from_email) = lower(account_email)",
@@ -1647,6 +1652,116 @@ async def list_replies(limit: int = 100, authorization: Optional[str] = Header(d
 
 
 # ==========================================
+# 追踪大盘数据接口（fix30）：恢复接手前原版的三件套——打开流水
+# （email_logs 逐条）、时间范围筛选、统计卡随范围走。范围日界一律按
+# 北京时间（Asia/Shanghai）算，再换算成 UTC ISO 文本与 send_time 比较
+# （send_time 存的是 UTC ISO 文本）。
+# ==========================================
+_EMAIL_LOGS_ENSURED = False
+
+
+def _ensure_email_logs():
+    """确保 email_logs 流水表存在（懒补建，沿 _ensure_replies 模式：
+    启动自检万一漏建，用到的地方自己补，进程内只真正执行一次）。"""
+    global _EMAIL_LOGS_ENSURED
+    if _EMAIL_LOGS_ENSURED:
+        return
+    _db_exec("CREATE TABLE IF NOT EXISTS email_logs (log_id BIGSERIAL PRIMARY KEY, "
+             "email_id TEXT, open_time TEXT, is_scanner BOOLEAN DEFAULT FALSE)")
+    _db_exec("CREATE INDEX IF NOT EXISTS idx_email_logs_email ON email_logs (email_id)")
+    _EMAIL_LOGS_ENSURED = True
+
+
+_CST = ZoneInfo("Asia/Shanghai")
+
+
+def _dashboard_bounds(time_range: str, custom_start: str, custom_end: str):
+    """把范围参数换算成 (start_iso, end_iso) UTC ISO 文本，None 表示不限。
+    end 为开区间上界（次日 00:00），等价于止日 23:59:59 且不丢毫秒级时间。
+    week/month/quarter 按「含今天共 N 个自然日」算：往前推 N-1 天的 00:00 起。
+    自定义起止都有效时优先于 time_range；time_range 非法值按 all。"""
+    def day_start_utc(d):
+        return datetime(d.year, d.month, d.day, tzinfo=_CST) \
+            .astimezone(timezone.utc).isoformat()
+
+    cs = ce = None
+    if custom_start and custom_end:
+        try:
+            cs = datetime.strptime(custom_start.strip(), "%Y-%m-%d").date()
+            ce = datetime.strptime(custom_end.strip(), "%Y-%m-%d").date()
+        except Exception:
+            cs = ce = None
+    if cs is not None and ce is not None:
+        if ce < cs:
+            cs, ce = ce, cs
+        return day_start_utc(cs), day_start_utc(ce + timedelta(days=1))
+
+    today = datetime.now(_CST).date()
+    if time_range == "today":
+        return day_start_utc(today), None
+    if time_range == "yesterday":
+        y = today - timedelta(days=1)
+        return day_start_utc(y), day_start_utc(today)
+    if time_range == "week":
+        return day_start_utc(today - timedelta(days=6)), None
+    if time_range == "month":
+        return day_start_utc(today - timedelta(days=29)), None
+    if time_range == "quarter":
+        return day_start_utc(today - timedelta(days=89)), None
+    return None, None
+
+
+@app.get("/api/dashboard_data")
+async def dashboard_data(time_range: str = "all", custom_start: str = "",
+                         custom_end: str = "",
+                         authorization: Optional[str] = Header(default=None)):
+    user_id = _verify_user_id(authorization)
+    start_iso, end_iso = _dashboard_bounds(time_range or "all",
+                                           custom_start or "", custom_end or "")
+    where = "user_id = %s"
+    params = [user_id]
+    if start_iso:
+        where += " AND send_time >= %s"
+        params.append(start_iso)
+    if end_iso:
+        where += " AND send_time < %s"
+        params.append(end_iso)
+    rows = _db_query(
+        "SELECT id, recipient, subject, status, send_time, open_count, "
+        "first_open_time, error FROM emails WHERE " + where +
+        " ORDER BY send_time DESC", tuple(params))
+    emails_out = [{
+        "id": r["id"],
+        "recipient": r.get("recipient"),
+        "subject": r.get("subject"),
+        "status": r.get("status"),
+        "send_time": r.get("send_time"),
+        "open_count": r.get("open_count") or 0,
+        "first_open_time": r.get("first_open_time"),
+        "error": r.get("error"),
+    } for r in rows]
+    logs_map = {}
+    ids = [r["id"] for r in rows]
+    if ids:
+        _ensure_email_logs()
+        for lg in _db_query(
+                "SELECT log_id, email_id, open_time, is_scanner FROM email_logs "
+                "WHERE email_id = ANY(%s) ORDER BY open_time ASC", (ids,)):
+            logs_map.setdefault(lg["email_id"], []).append({
+                "log_id": lg["log_id"],
+                "open_time": lg["open_time"],
+                "is_scanner": bool(lg.get("is_scanner")),
+            })
+    # 统计口径沿现大盘：sent = 范围内邮件行数（不分状态，与「累计发送数」
+    # 一直以来的算法一致），opened = 其中 open_count>0 的封数。
+    sent = len(rows)
+    opened = sum(1 for r in rows if (r.get("open_count") or 0) > 0)
+    rate = round(opened / sent * 100, 1) if sent else 0.0
+    return {"emails": emails_out, "logs_map": logs_map,
+            "stats": {"sent": sent, "opened": opened, "rate": rate}}
+
+
+# ==========================================
 # 发信账号接口（云端保存，授权码加密；前端永远看不到明文）
 # ==========================================
 class AccountIn(BaseModel):
@@ -1656,7 +1771,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix29-scopenote"}
+    return {"v": "v5-fix30-tracking"}
 
 
 @app.get("/api/accounts")
@@ -1899,8 +2014,31 @@ async def preview_home_page(request: Request):
     """新版首页设计稿预览（站长确认后再替换正式首页）。"""
     return _serve_page_file("index_new.html")
 
+def _parse_iso_dt(v):
+    """把存的 ISO 时间文本解析成带时区的 datetime；解析不了返回 None。
+    无时区的按 UTC 看待（send_time 一律是 UTC ISO 文本）。"""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        dt = v
+    else:
+        try:
+            dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 # ==========================================
-# 追踪像素端点
+# 追踪像素端点（fix30 恢复原版防误判 + 打开流水）
+# ------------------------------------------
+# 判定顺序：发件人设备 Cookie 免记 → 发送后 30 秒内硬丢弃（邮件系统
+# 投递即扫的那一下，不写流水不计数）→ UA 含 GoogleImageProxy 判系统
+# 扫描（只写 is_scanner 流水，不计数不算已读）→ 真人打开（写流水 +
+# open_count+1，首开时间只记第一次）。流水写失败不拖累计数，反之亦然；
+# 任何异常都照常返回像素，绝不让收件端看到报错。
 # ==========================================
 @app.get("/track/{email_id}")
 async def track_email_open(email_id: str, request: Request):
@@ -1912,8 +2050,39 @@ async def track_email_open(email_id: str, request: Request):
         rows = _db_query(
             "SELECT open_count, first_open_time FROM emails WHERE id = %s", (email_id,))
         if rows:
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
+            # 发送时间单独查一列：主查询保持老形状（冒烟测试的假库按它匹配）
+            send_dt = None
+            try:
+                srows = _db_query(
+                    "SELECT send_time FROM emails WHERE id = %s", (email_id,))
+                if srows:
+                    send_dt = _parse_iso_dt(srows[0].get("send_time"))
+            except Exception:
+                send_dt = None
+            # 30 秒规则：解析不出发送时间就不启用，照常往下记
+            if send_dt is not None and (now - send_dt).total_seconds() < 30:
+                return _pixel_response()
+            ua = request.headers.get("user-agent") or ""
+            if "GoogleImageProxy" in ua:
+                try:
+                    _ensure_email_logs()
+                    _db_exec(
+                        "INSERT INTO email_logs (email_id, open_time, is_scanner) "
+                        "VALUES (%s, %s, %s)", (email_id, now_iso, True))
+                except Exception as e:
+                    print(f"Tracking scanner-log error for {email_id}: {e}")
+                return _pixel_response()
+            try:
+                _ensure_email_logs()
+                _db_exec(
+                    "INSERT INTO email_logs (email_id, open_time, is_scanner) "
+                    "VALUES (%s, %s, %s)", (email_id, now_iso, False))
+            except Exception as e:
+                print(f"Tracking log error for {email_id}: {e}")
             new_count = (rows[0].get("open_count") or 0) + 1
-            first_open = rows[0].get("first_open_time") or datetime.now(timezone.utc).isoformat()
+            first_open = rows[0].get("first_open_time") or now_iso
             _db_exec("UPDATE emails SET open_count = %s, first_open_time = %s WHERE id = %s",
                      (new_count, first_open, email_id))
     except Exception as e:
