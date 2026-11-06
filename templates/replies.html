@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>回复 — MailTracker</title>
+  <title>回信提醒 — MailTracker</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -150,17 +150,20 @@
 
   <div class="container">
     <div class="header-box">
-      <div class="title">🚀 批量触达工作台</div>
-      <div class="nav-links">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div class="title">💬 回信提醒</div>
         <a href="/" class="nav-btn">🌊 官网首页</a>
-        <a href="/outreach" class="nav-btn">🚀 批量触达</a>
-        <a href="/replies" class="nav-btn active">💬 回复<span id="replyNavBadge" class="nav-badge"></span></a>
+      </div>
+      <div class="nav-links">
+        <a href="/outreach" class="nav-btn">🚀 自动发信</a>
+        <a href="/replies" class="nav-btn active">💬 回信提醒<span id="replyNavBadge" class="nav-badge"></span></a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪</a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
     </div>
 
     <div class="card">
-      <div class="section-title"><span>💬 回复汇总</span></div>
+      <div class="section-title"><span>💬 回信提醒</span></div>
       <span class="help-hint">系统每隔几分钟巡逻你名下所有发信邮箱的收件箱，发现有人回复了你发出的信，就汇总到这里。点任意一条会新开 Gmail 直达那封原信（会按发信邮箱切到对应账号），由你本人接着聊；这里只负责发现和指路，不存邮件正文。<br>范围说明：这里只汇总「通过本工具发出」的邮件收到的回复；你在 Gmail 里直接手工往来的邮件（比如长期一对一聊着的达人）不在这里，请到 Gmail 里看。</span>
       <div id="replyList" style="margin-top:8px;">
         <div style="color:#78909C; font-size:13px; padding:10px 0;">正在加载…</div>

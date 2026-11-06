@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>批量触达工作台 — MailTracker</title>
+  <title>自动发信 — MailTracker</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -320,10 +320,10 @@
     .modal-btn-primary:hover { background: #245841; }
     .modal-btn-secondary { background: #F1F5F2; color: #5E7267; border: 1px solid rgba(36, 51, 44, 0.08); }
     .modal-btn-secondary:hover { background: #E4ECE6; }
-    .sub-nav { display: flex; gap: 6px; margin: 16px 0 8px; background: #E7EEE9; padding: 6px; border-radius: 14px; }
-    .sub-tab { flex: 1; text-align: center; padding: 11px 0; border-radius: 10px; font-size: 15px; font-weight: 700; color: #46604F; text-decoration: none; transition: 0.2s; }
-    .sub-tab:hover { background: #DCE7DE; }
-    .sub-tab.active { background: #2D6A4F; color: #FFF; box-shadow: 0 2px 8px rgba(45,106,79,0.35); }
+    .task-act-btn { border: 1.5px solid #B7D3C0; background: #fff; color: #2D6A4F; border-radius: 8px; padding: 3px 9px; font-size: 12px; font-weight: 700; cursor: pointer; margin: 1px 0; }
+    .task-act-btn:hover { background: #EAF4EE; }
+    .task-act-btn.danger { border-color: #E5B4B4; color: #B3261E; }
+    .task-act-btn.danger:hover { background: #FDECEC; }
   </style>
 
   <script>
@@ -1058,8 +1058,15 @@
       }
 
       attachTaskPolling(taskId);
-      // 任务建好后自动跳到进度页看投递（用户 2026-11-04 定的）；切回发信页时重进接回逻辑会再挂上进度
-      setTimeout(() => { window.location.href = "/progress"; }, 600);
+      // 任务建好后平滑滚动到本页下方的发送进度区（fix37 并页后不再跳
+      // /progress；原「自动跳进度页」是用户 2026-11-04 定的，并页后改为
+      // 同页滚动）；先刷新一次任务表，让新任务立刻出现在表里。切回本页
+      // 时重进接回逻辑会再挂上进度。
+      if (typeof loadTaskList === "function") loadTaskList();
+      setTimeout(() => {
+        const progEl = document.getElementById("progress");
+        if (progEl) progEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 600);
     }
 
     let taskPollTimer = null;
@@ -1136,19 +1143,16 @@
 
   <div class="container">
     <div class="header-box">
-      <div class="title">🚀 批量触达工作台</div>
-      <div class="nav-links">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div class="title">🚀 自动发信</div>
         <a href="/" class="nav-btn">🌊 官网首页</a>
-        <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
-        <a href="/replies" class="nav-btn">💬 回复<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
+      </div>
+      <div class="nav-links">
+        <a href="/outreach" class="nav-btn active">🚀 自动发信</a>
+        <a href="/replies" class="nav-btn">💬 回信提醒<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪</a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
-    </div>
-
-    <div class="sub-nav">
-      <a href="/outreach" class="sub-tab active">✉️ 写信发送</a>
-      <a href="/progress" class="sub-tab">📋 发送进度</a>
-      <a href="/dashboard" class="sub-tab">📊 打开追踪</a>
     </div>
 
     <div id="clonePrefillBanner" style="display:none; background:#FFF8E1; border:1px solid #FFE082; border-radius:12px; padding:12px 16px; font-size:13px; color:#795548; line-height:1.7; margin-bottom:16px;"></div>
@@ -1275,10 +1279,30 @@
         <span class="help-hint" style="align-self:center;">任务在后端后台运行，关掉本页也不会中断。</span>
       </div>
     </div>
+
+    <!-- 4. 发送进度（原 /progress 页并入，fix37）：与写信发送同页，开始发送后自动滚到这里 -->
+    <div class="card" id="progress">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+        <div class="section-title" style="margin-bottom:0;"><span>📋 发送任务（进行中与历史记录）</span></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" id="recipientSearch" placeholder="输入收件人邮箱找任务（或一部分）" style="width:230px; border:1.5px solid #CFE0D5; border-radius:9px; padding:7px 12px; font-size:13px;" onkeydown="if (event.key === 'Enter') searchRecipient()" />
+          <button type="button" class="task-act-btn" style="padding:7px 16px;" onclick="searchRecipient()">搜索</button>
+        </div>
+      </div>
+      <span class="help-hint">每批发送都会记在这里：进行中的每 5 秒自动刷新，完成的长期保留，服务器重启也不会丢。想不起给某个人发过没有，用右上角按邮箱搜一下就知道。</span>
+      <div id="recipientSearchResult" style="margin-top:10px;"></div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+          <thead><tr style="text-align:left; color:#546E7A;">
+            <th style="padding:6px;">开始时间</th><th style="padding:6px;">主题</th><th style="padding:6px;">总数</th>
+            <th style="padding:6px;">已发</th><th style="padding:6px;">失败</th><th style="padding:6px;">跳过</th><th style="padding:6px;">状态</th><th style="padding:6px;">操作</th>
+          </tr></thead>
+          <tbody id="taskListBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
-
-
-  <div id="linkModal" class="modal-overlay">
+<div id="linkModal" class="modal-overlay">
     <div class="modal-card">
       <div class="modal-icon">🔗</div>
       <div class="modal-title">插入链接</div>
@@ -1362,6 +1386,16 @@
   </div>
 
 
+  <div id="taskDetailModal" style="display:none; position:fixed; inset:0; background:rgba(27,43,36,.45); z-index:2000; align-items:flex-start; justify-content:center; overflow-y:auto; padding:30px 12px;">
+    <div style="background:#fff; border-radius:16px; max-width:720px; width:100%; padding:22px; box-shadow:0 18px 50px rgba(27,67,50,.25);">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div id="taskDetailTitle" style="font-size:16px; font-weight:800; color:#1B4332;">📋 任务明细</div>
+        <button type="button" class="task-act-btn" onclick="closeTaskDetail()">✕ 关闭</button>
+      </div>
+      <div id="taskDetailBody" style="margin-top:12px; max-height:60vh; overflow-y:auto;"></div>
+    </div>
+  </div>
+
 <script>
   // 站长监控室入口 + 他人限额提示（fix23）：问后端 /api/me，是站长才亮入口
   (async () => {
@@ -1395,6 +1429,261 @@
       if (b && (d.total || 0) > 0) { b.textContent = d.total; b.style.display = 'inline-block'; }
     } catch (e) {}
   })();
+</script>
+<script>
+  // ===== 发送进度（原 /progress 页整块并入，fix37）=====
+  // 任务表 / 明细 / 继续发送 / 再发一轮 / 终止 / 按邮箱搜，行为与原进度页一致。
+    const TASK_STATUS_LABEL = { running: "🟢 进行中", paused: "⏸ 已暂停", done: "✅ 已完成", stopped: "⏹ 已终止", failed: "❌ 失败", interrupted: "⚠️ 已中断", continued: "↪️ 已续发" };
+
+    let replyCounts = {};
+    async function refreshReplyCounts() {
+      try {
+        const r = await fetch("/api/tasks/reply-counts", { headers: await authHeaders() });
+        if (r.ok) { const d = await r.json(); replyCounts = d.counts || {}; }
+      } catch (e) {}
+    }
+
+    async function loadTaskList() {
+      const tbody = document.getElementById("taskListBody");
+      if (!tbody || !currentUser) return;
+      await refreshReplyCounts();
+      const { data, error } = await client.from("send_tasks").select("*").order("created_at", { ascending: false }).limit(20);
+      if (error) return;
+      tbody.innerHTML = "";
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="color:#78909C;">还没有发送任务记录</td></tr>';
+        return;
+      }
+      data.forEach(t => {
+        const tr = document.createElement("tr");
+        const doneN = (t.sent || 0) + (t.failed || 0) + (t.skipped || 0);
+        const pct = t.total > 0 ? Math.round((doneN / t.total) * 100) : 0;
+        let statusCell = TASK_STATUS_LABEL[t.status] || t.status || "-";
+        if (t.status === "done" && (t.failed || 0) > 0) {
+          // “已完成”只表示跑完了：有失败必须一眼看出来，不能跟全成功一个样（2026-11-04 用户定的）
+          if ((t.sent || 0) === 0) statusCell = '<span style="color:#C62828; font-weight:700;">❌ 全部失败</span>';
+          else statusCell = `<span style="color:#C62828; font-weight:700;">⚠️ 已完成 · ${t.failed} 封失败</span>`;
+        } else if ((t.status === "stopped" || t.status === "interrupted") && (t.failed || 0) > 0) {
+          statusCell += `<div style="font-size:11px; color:#C62828; margin-top:3px;">其中 ${t.failed} 封失败</div>`;
+        }
+        if (t.status === "running" || t.status === "paused") {
+          statusCell += `<div style="margin-top:5px; background:#E7EEE9; border-radius:6px; height:8px; width:110px; overflow:hidden;"><div style="height:100%; width:${pct}%; background:#2D6A4F;"></div></div><div style="font-size:11px; color:#5E7267; margin-top:3px;">已处理 ${doneN}/${t.total} · ${pct}%</div>`;
+        }
+        const replyN = replyCounts[t.id] || 0;
+        if (replyN > 0) {
+          statusCell += `<div style="margin-top:4px;"><a href="/replies" onclick="event.stopPropagation();" style="color:#2D6A4F; font-weight:700; font-size:12px; text-decoration:none;">💬 ${replyN} 条回复</a></div>`;
+        }
+        let hasPayload = false;
+        try {
+          const pl0 = typeof t.payload === "string" ? JSON.parse(t.payload) : t.payload;
+          hasPayload = !!(pl0 && Array.isArray(pl0.emails) && pl0.emails.length);
+        } catch (e) { hasPayload = false; }
+        let acts = `<button type="button" class="task-act-btn" onclick="event.stopPropagation(); openTaskDetail('${t.id}')">明细</button>`;
+        if (["interrupted", "failed", "stopped"].includes(t.status)) {
+          acts += ` <button type="button" class="task-act-btn" onclick="event.stopPropagation(); continueTask('${t.id}')">继续发送</button>`;
+        }
+        if (["done", "stopped", "interrupted"].includes(t.status)) {
+          if (hasPayload) {
+            acts += ` <button type="button" class="task-act-btn" onclick="event.stopPropagation(); cloneTask('${t.id}')">再发一轮</button>`;
+          } else {
+            acts += ` <button type="button" class="task-act-btn" disabled title="这个任务是旧版本创建的，当时没有保存名单和正文，无法再发一轮" style="opacity:.45; cursor:not-allowed;">再发一轮</button>`;
+          }
+        }
+        if (["running", "paused", "interrupted", "failed"].includes(t.status)) {
+          acts += ` <button type="button" class="task-act-btn danger" onclick="event.stopPropagation(); terminateTask('${t.id}')">终止</button>`;
+        }
+        let recipPreview = "";
+        try {
+          const pl = typeof t.payload === "string" ? JSON.parse(t.payload) : t.payload;
+          if (pl && Array.isArray(pl.emails) && pl.emails.length) {
+            const names = pl.emails.slice(0, 3).map(e => e.to_email).join("、");
+            recipPreview = `<div style="font-size:11px; color:#7A8B81; margin-top:3px;">${names}${pl.emails.length > 3 ? " 等 " + pl.emails.length + " 人" : ""}</div>`;
+          }
+        } catch (e) { /* 旧任务没有名单快照就不显示预览 */ }
+        tr.innerHTML = `
+          <td>${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
+          <td>${t.subject || "-"}${recipPreview}</td>
+          <td>${t.total}</td><td>${t.sent}</td><td>${t.failed}</td><td>${t.skipped}</td>
+          <td>${statusCell}</td>
+          <td style="white-space:nowrap;">${acts}</td>
+        `;
+        tr.style.cursor = "pointer";
+        tr.title = "点击查看这一批发给了哪些人";
+        tr.addEventListener("click", () => openTaskDetail(t.id));
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function authHeaders() {
+      const { data: { session } } = await client.auth.getSession();
+      const h = { "Content-Type": "application/json" };
+      if (session && session.access_token) h["Authorization"] = "Bearer " + session.access_token;
+      return h;
+    }
+
+    const RECIP_STATUS_LABEL = { success: "✅ 已发送", sent: "✅ 已发送", failed: "❌ 发送失败", pending: "❔ 状态不明（发送时中断）", unsent: "⏳ 未发送" };
+    function escHtml(v) { return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+    async function openTaskDetail(taskId) {
+      const modal = document.getElementById("taskDetailModal");
+      const body = document.getElementById("taskDetailBody");
+      const title = document.getElementById("taskDetailTitle");
+      modal.style.display = "flex";
+      title.innerText = "📋 任务明细";
+      body.innerHTML = '<div style="color:#78909C; padding:10px 0;">正在加载…</div>';
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/detail", { headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { body.innerHTML = '<div style="color:#C62828;">' + (data.detail || "加载失败") + '</div>'; return; }
+        title.innerText = "📋 " + (data.subject || "任务明细");
+        let html = "";
+        if (data.legacy) {
+          html += '<div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:8px 10px; font-size:12px; color:#795548; margin-bottom:10px;">这是旧版本创建的任务，当时没有保存完整名单，下面是按时间范围匹配到的发送记录，仅供参考。</div>';
+        }
+        if (!data.recipients || data.recipients.length === 0) {
+          html += '<div style="color:#78909C;">没有查到这一批的收件人名单。</div>';
+        } else {
+          // 明细列“发给了哪些人 + 每人发送状态 + 失败原因”（2026-11-04 用户拍板加上状态与原因）；打开情况仍只在追踪大盘看
+          // 名单可能有几百人：默认只渲染前 100 个，其余点按钮展开，避免一股脑全塞进弹窗
+          tdRecipients = data.recipients;
+          tdExpanded = false;
+          html += '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">'
+            + '<button type="button" class="task-act-btn" onclick="copyTdList()">📋 复制名单</button></div>';
+          html += '<div id="tdSummary" style="font-size:12px; color:#5E7267; margin-bottom:8px;"></div>';
+          html += '<div id="tdList"></div>';
+        }
+        body.innerHTML = html;
+        if (data.recipients && data.recipients.length) renderTdList();
+      } catch (e) {
+        body.innerHTML = '<div style="color:#C62828;">加载失败：' + e + '</div>';
+      }
+    }
+
+    let tdRecipients = [];
+    let tdExpanded = false;
+    const TD_PAGE = 100;
+
+    function renderTdList() {
+      const box = document.getElementById("tdList");
+      const sum = document.getElementById("tdSummary");
+      if (!box) return;
+      const filtered = tdRecipients;
+      const shown = tdExpanded ? filtered : filtered.slice(0, TD_PAGE);
+      let html = '<div style="display:flex; flex-direction:column; gap:6px;">';
+      shown.forEach(r => {
+        const lbl = RECIP_STATUS_LABEL[r.status] || r.status || "";
+        html += `<div style="background:#EEF4F0; border:1px solid #D8E6DC; border-radius:8px; padding:5px 10px; font-size:12px; color:#2F4A3C;">${escHtml(r.email)} <span style="margin-left:6px;">${lbl}</span>`
+          + (r.status === "failed" && r.error ? `<div style="color:#C62828; margin-top:2px; word-break:break-all;">失败原因：${escHtml(String(r.error).slice(0, 300))}</div>` : "")
+          + '</div>';
+      });
+      html += '</div>';
+      if (!tdExpanded && filtered.length > TD_PAGE) {
+        html += `<button type="button" class="task-act-btn" style="margin-top:10px;" onclick="tdExpanded = true; renderTdList();">显示全部（共 ${filtered.length} 位）</button>`;
+      }
+      box.innerHTML = html;
+      if (sum) {
+        const okN = tdRecipients.filter(r => r.status === "success" || r.status === "sent").length;
+        const badN = tdRecipients.filter(r => r.status === "failed").length;
+        sum.innerText = "这一批共 " + tdRecipients.length + " 位收件人 · 已发送 " + okN + " · 失败 " + badN + (shown.length < filtered.length ? "（先显示前 " + shown.length + " 位）" : "");
+      }
+    }
+
+    function copyTdList() {
+      const text = tdRecipients.map(r => r.email).join("\n");
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => alert("已复制这一批 " + tdRecipients.length + " 位收件人的邮箱"));
+      } else {
+        prompt("复制下面的名单：", text);
+      }
+    }
+
+    function closeTaskDetail() {
+      document.getElementById("taskDetailModal").style.display = "none";
+    }
+
+    async function continueTask(taskId) {
+      if (!confirm("继续发送这个任务？已经发过（或发送状态不明）的人会自动跳过，不会重复发。")) return;
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/continue", { method: "POST", headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.detail || "继续失败"); return; }
+        if (data.task_id) {
+          alert("已开始继续发送：跳过 " + data.skipped_done + " 位已发过的人，剩余 " + data.remaining + " 位正在发送，在本页上方的写信区可以看实时进度。");
+        } else {
+          alert(data.message || "没有需要继续发送的人了。");
+        }
+        loadTaskList();
+      } catch (e) { alert("继续失败：" + e); }
+    }
+
+    async function cloneTask(taskId) {
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/clone-prefill", { method: "POST", headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.detail || "再发一轮准备失败"); return; }
+        try { localStorage.setItem("clonePrefill", JSON.stringify(data)); } catch (e) {}
+        window.location.href = "/outreach";
+      } catch (e) { alert("再发一轮准备失败：" + e); }
+    }
+
+    async function terminateTask(taskId) {
+      if (!confirm("终止这个任务？终止后没发的人不会再发（之后还可以用「继续发送」捡起来）。")) return;
+      try {
+        const resp = await fetch("/api/tasks/" + taskId + "/terminate", { method: "POST", headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { alert(data.detail || "终止失败"); return; }
+        loadTaskList();
+      } catch (e) { alert("终止失败：" + e); }
+    }
+
+    const SEND_STATUS_LABEL = { sent: "✅ 已发送", failed: "❌ 发送失败", pending: "❔ 状态不明" };
+
+    async function searchRecipient() {
+      const q = (document.getElementById("recipientSearch")?.value || "").trim();
+      const box = document.getElementById("recipientSearchResult");
+      if (q.length < 2) { box.innerHTML = '<div style="color:#C62828; font-size:13px;">至少输入 2 个字符再搜。</div>'; return; }
+      box.innerHTML = '<div style="color:#78909C; font-size:13px;">搜索中…</div>';
+      try {
+        const resp = await fetch("/api/tasks/search-recipient?q=" + encodeURIComponent(q), { headers: await authHeaders() });
+        const data = await resp.json();
+        if (!resp.ok) { box.innerHTML = '<div style="color:#C62828; font-size:13px;">' + (data.detail || "搜索失败") + '</div>'; return; }
+        if (!data.matches || data.matches.length === 0) {
+          box.innerHTML = '<div style="color:#78909C; font-size:13px;">没有给包含“' + q + '”的邮箱发过。</div>';
+          return;
+        }
+        let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr style="text-align:left; color:#546E7A;"><th style="padding:5px;">收件人</th><th style="padding:5px;">在哪一批</th><th style="padding:5px;">发送时间</th><th style="padding:5px;">状态</th><th style="padding:5px;">打开</th></tr></thead><tbody>';
+        data.matches.forEach(m => {
+          const taskCell = m.task_id
+            ? `<a href="javascript:void(0)" style="color:#2D6A4F; font-weight:700;" onclick="openTaskDetail('${m.task_id}')">${m.task_subject || "(无标题)"}</a><div style="font-size:11px; color:#7A8B81;">${m.task_created_at ? new Date(m.task_created_at).toLocaleString() : ""}${m.legacy ? " · 旧任务按时间匹配" : ""}</div>`
+            : '<span style="color:#78909C;">单封发送（不在批次里）</span>';
+          html += `<tr style="border-top:1px solid #EEF3F0;"><td style="padding:5px;">${m.recipient}</td><td style="padding:5px;">${taskCell}</td><td style="padding:5px;">${m.send_time ? new Date(m.send_time).toLocaleString() : "-"}</td><td style="padding:5px;">${SEND_STATUS_LABEL[m.status] || m.status}</td><td style="padding:5px;">${m.open_count > 0 ? "👀 ×" + m.open_count : "-"}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        box.innerHTML = html;
+      } catch (e) {
+        box.innerHTML = '<div style="color:#C62828; font-size:13px;">搜索失败：' + e + '</div>';
+      }
+    }
+
+    // ===== 发送进度并入（fix37）：启动引导 =====
+    // client / currentUser 复用本页主脚本的全局变量；等 initAuth 登录
+    // 完成（currentUser 就绪）后启动任务表加载与每 5 秒自刷（原 /progress
+    // 页 initAuth 的职责）。100 次（约 30 秒）还没登录就放弃——未登录时
+    // 主脚本自己会跳回首页。
+    (function progBoot() {
+      let tries = 0;
+      const timer = setInterval(() => {
+        tries++;
+        if (typeof currentUser !== "undefined" && currentUser) {
+          clearInterval(timer);
+          loadTaskList();
+          setInterval(loadTaskList, 5000);
+        } else if (tries > 100) {
+          clearInterval(timer);
+        }
+      }, 300);
+    })();
+
 </script>
 </body>
 </html>

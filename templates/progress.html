@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>批量触达工作台 — MailTracker</title>
+  <title>自动发信 — MailTracker</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -319,14 +319,10 @@
     .modal-btn-primary:hover { background: #245841; }
     .modal-btn-secondary { background: #F1F5F2; color: #5E7267; border: 1px solid rgba(36, 51, 44, 0.08); }
     .modal-btn-secondary:hover { background: #E4ECE6; }
-    .sub-nav { display: flex; gap: 6px; margin: 16px 0 8px; background: #E7EEE9; padding: 6px; border-radius: 14px; }
     .task-act-btn { border: 1.5px solid #B7D3C0; background: #fff; color: #2D6A4F; border-radius: 8px; padding: 3px 9px; font-size: 12px; font-weight: 700; cursor: pointer; margin: 1px 0; }
     .task-act-btn:hover { background: #EAF4EE; }
     .task-act-btn.danger { border-color: #E5B4B4; color: #B3261E; }
     .task-act-btn.danger:hover { background: #FDECEC; }
-    .sub-tab { flex: 1; text-align: center; padding: 11px 0; border-radius: 10px; font-size: 15px; font-weight: 700; color: #46604F; text-decoration: none; transition: 0.2s; }
-    .sub-tab:hover { background: #DCE7DE; }
-    .sub-tab.active { background: #2D6A4F; color: #FFF; box-shadow: 0 2px 8px rgba(45,106,79,0.35); }
   </style>
   <script>
     const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
@@ -586,19 +582,16 @@
 
   <div class="container">
     <div class="header-box">
-      <div class="title">🚀 批量触达工作台</div>
-      <div class="nav-links">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div class="title">🚀 自动发信</div>
         <a href="/" class="nav-btn">🌊 官网首页</a>
-        <a href="/outreach" class="nav-btn active">🚀 批量触达</a>
-        <a href="/replies" class="nav-btn">💬 回复<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
+      </div>
+      <div class="nav-links">
+        <a href="/outreach" class="nav-btn active">🚀 自动发信</a>
+        <a href="/replies" class="nav-btn">💬 回信提醒<span id="replyNavBadge" style="display:none; background:#C62828; color:#fff; border-radius:999px; font-size:11px; font-weight:700; padding:1px 7px; margin-left:2px;"></span></a>
+        <a href="/dashboard" class="nav-btn">📊 邮件追踪</a>
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
-    </div>
-
-    <div class="sub-nav">
-      <a href="/outreach" class="sub-tab">✉️ 写信发送</a>
-      <a href="/progress" class="sub-tab active">📋 发送进度</a>
-      <a href="/dashboard" class="sub-tab">📊 打开追踪</a>
     </div>
 
     <div class="card">
