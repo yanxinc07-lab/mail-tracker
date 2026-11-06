@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -1810,7 +1810,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix36-onebtn"}
+    return {"v": "v5-fix37-nav3"}
 
 
 @app.get("/api/accounts")
@@ -2030,9 +2030,11 @@ async def outreach_page(request: Request):
     return _page_with_sender_cookie("outreach.html", request)
 
 
-@app.get("/progress", response_class=HTMLResponse)
+@app.get("/progress")
 async def progress_page(request: Request):
-    return _page_with_sender_cookie("progress.html", request)
+    # fix37：发送进度已并入自动发信页（/outreach 下方的发送进度区），
+    # 旧链接/书签一律重定向过去（落地页 /outreach 会种发件人 Cookie）。
+    return RedirectResponse(url="/outreach#progress", status_code=302)
 
 
 @app.get("/replies", response_class=HTMLResponse)
@@ -2073,11 +2075,13 @@ def _parse_iso_dt(v):
 # ==========================================
 # 追踪像素端点（fix30 恢复原版防误判 + 打开流水）
 # ------------------------------------------
-# 判定顺序：发件人设备 Cookie 免记 → 发送后 30 秒内硬丢弃（邮件系统
-# 投递即扫的那一下，不写流水不计数）→ UA 含 GoogleImageProxy 判系统
-# 扫描（只写 is_scanner 流水，不计数不算已读）→ 真人打开（写流水 +
-# open_count+1，首开时间只记第一次）。流水写失败不拖累计数，反之亦然；
-# 任何异常都照常返回像素，绝不让收件端看到报错。
+# 判定顺序：发件人设备 Cookie 免记 → 发送后 30 秒内判系统扫描（邮件
+# 系统投递即扫的那一下，fix37 起改标记制：只写 is_scanner 流水，不
+# 计数不算已读，事后在大盘时间轴可查可翻案）→ UA 含 GoogleImageProxy
+# 同样判系统扫描 → 真人打开（写流水 + open_count+1，首开时间只记第
+# 一次）。30 秒与 UA 两路命中只写一条流水（先命中的先写并返回）。
+# 流水写失败不拖累计数，反之亦然；任何异常都照常返回像素，绝不让
+# 收件端看到报错。
 # ==========================================
 @app.get("/track/{email_id}")
 async def track_email_open(email_id: str, request: Request):
@@ -2100,8 +2104,18 @@ async def track_email_open(email_id: str, request: Request):
                     send_dt = _parse_iso_dt(srows[0].get("send_time"))
             except Exception:
                 send_dt = None
-            # 30 秒规则：解析不出发送时间就不启用，照常往下记
+            # 30 秒规则（fix37 改标记制）：发送后 30 秒内的打开多半是邮件
+            # 系统投递即扫的那一下——不再硬丢弃，改记一条 is_scanner 流水
+            # （不计数、不算已读），与下面的 UA 扫描同等待遇，事后在大盘
+            # 时间轴可查可翻案；解析不出发送时间就不启用此规则，照常往下记。
             if send_dt is not None and (now - send_dt).total_seconds() < 30:
+                try:
+                    _ensure_email_logs()
+                    _db_exec(
+                        "INSERT INTO email_logs (email_id, open_time, is_scanner) "
+                        "VALUES (%s, %s, %s)", (email_id, now_iso, True))
+                except Exception as e:
+                    print(f"Tracking scanner-log error for {email_id}: {e}")
                 return _pixel_response()
             ua = request.headers.get("user-agent") or ""
             if "GoogleImageProxy" in ua:
