@@ -91,15 +91,14 @@
     }
     .btn-nav-capsule:hover { background: rgba(255, 255, 255, 0.3); }
 
-    /* 4. 首屏纯粹展示区：轻盈、留白、通透大片 */
+    /* 4. 首屏展示区：tag + CTA + 两列功能组同屏呈现，不再满屏留白 */
     .hero-section {
-      min-height: calc(100vh - 84px);
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: flex-start;
       align-items: center;
       text-align: center;
-      padding-bottom: 40px;
+      padding: 54px 0 6px;
     }
     .hero-tag {
       display: inline-flex;
@@ -118,13 +117,16 @@
       font-weight: 600;
     }
 
-    /* 首屏下方双功能块：与两大功能一一对应，权重相当 */
-    .duo-blocks {
+    /* 首屏双列功能组：每列 = 功能块 + 归属它的详细介绍卡，自上而下跟着功能走 */
+    .feature-cols {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 22px;
-      margin: 0 auto 40px;
+      width: 100%;
+      margin-top: 42px;
+      text-align: left;
     }
+    .f-col { display: flex; flex-direction: column; gap: 22px; }
     .duo-block {
       background: rgba(10, 20, 38, 0.7);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -192,7 +194,7 @@
     }
 
     .scroll-down {
-      margin-top: 50px;
+      margin-top: 36px;
       font-size: 11px;
       letter-spacing: 0.2em;
       color: rgba(255, 255, 255, 0.7);
@@ -205,35 +207,7 @@
       60% { transform: translateY(-3px); }
     }
 
-    /* 5. 往下滚动才展现的数据看板与功能区 */
-    .cockpit-preview {
-      width: 100%;
-      margin: 40px auto 80px;
-      background: rgba(10, 20, 38, 0.75);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      border-radius: 20px;
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.8);
-      padding: 32px;
-    }
-    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-    .stat-card {
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 14px;
-      padding: 24px;
-      text-align: left;
-    }
-    .stat-card .label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
-    .stat-card .val { font-size: 34px; font-weight: 800; color: #38bdf8; }
-
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 22px;
-      margin-bottom: 90px;
-    }
+    /* 5. 详细介绍卡（归在各自功能列内，见 .feature-cols） */
     .f-box {
       background: rgba(10, 20, 38, 0.7);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -247,7 +221,7 @@
     .f-box h3 { font-size: 18px; font-weight: 700; margin: 0 0 10px; color: #fff; }
     .f-box p { font-size: 14px; color: #cbd5e1; line-height: 1.6; margin: 0; }
 
-    footer { text-align: center; padding: 40px 0 60px; font-size: 13px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+    footer { text-align: center; padding: 40px 0 60px; margin-top: 70px; font-size: 13px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.1); }
 
     /* 6. 优雅登录弹层 (默认隐藏) */
     #authOverlay {
@@ -338,7 +312,7 @@
     }
 
     @media (max-width: 860px) {
-      .stats-row, .features-grid, .duo-blocks { grid-template-columns: 1fr; }
+      .feature-cols { grid-template-columns: 1fr; }
       .hero-btns { flex-direction: column; width: 100%; }
       .btn-glow-blue, .btn-glass-pill { width: 100%; justify-content: center; }
     }
@@ -509,7 +483,7 @@
       </div>
     </header>
 
-    <!-- 首屏：完整留白通透的大海原片 -->
+    <!-- 首屏：tag + 入口 + 双列功能组同屏（两块各带自己的详细介绍，不再满屏留白） -->
     <section class="hero-section">
       <div class="hero-tag">✦ OUTREACH, ON AUTOPILOT · 让触达自己跑起来</div>
 
@@ -520,64 +494,46 @@
         </button>
       </div>
 
+      <!-- 双列功能组：每列 = 功能块 + 归属它的详细介绍卡 -->
+      <div class="feature-cols">
+        <div class="f-col">
+          <div class="duo-block">
+            <h2>规模化自动触达</h2>
+            <p>名单一次导入，多账号轮换自动发送。</p>
+          </div>
+          <div class="f-box">
+            <h3>多账号自动发送</h3>
+            <p>绑定多个发信账号，按你设的间隔随机发出，解放双手，把冷邮触达的效率拉满。</p>
+          </div>
+          <div class="f-box">
+            <h3>分散发送压力</h3>
+            <p>多账号轮换、发送间隔随机、每日量可控，降低单个账号触发邮箱风控的概率。</p>
+          </div>
+          <div class="f-box">
+            <h3>一套模板，逐封换名</h3>
+            <p>模板只写一次，收件人名字按名单自动替换，每封都像单独写的。</p>
+          </div>
+        </div>
+        <div class="f-col">
+          <div class="duo-block">
+            <h2>邮件状态查询</h2>
+            <p>谁打开了、什么时候打开的，一处看清。</p>
+          </div>
+          <div class="f-box">
+            <h3>打开状态可查</h3>
+            <p>每封邮件打开没打开、打开了几次、分别在什么时间打开的，都能查。不同时间反复打开却没回复的，多半有意向还在犹豫 — 把这批人挑出来，方便你私下做二次跟进。</p>
+          </div>
+          <div class="f-box">
+            <h3>回信集中提醒</h3>
+            <p>所有发信账号的回复自动汇总提醒，不用再一个个邮箱去翻。</p>
+          </div>
+        </div>
+      </div>
+
       <div class="scroll-down">
         SCROLL TO EXPLORE ↓
       </div>
     </section>
-
-    <!-- 首屏下方双功能块：对应自动发信与邮件追踪两大功能 -->
-    <div class="duo-blocks">
-      <div class="duo-block">
-        <h2>规模化自动触达</h2>
-        <p>名单一次导入，多账号轮换自动发送。</p>
-      </div>
-      <div class="duo-block">
-        <h2>邮件状态查询</h2>
-        <p>谁打开了、什么时候打开的，一处看清。</p>
-      </div>
-    </div>
-
-    <!-- 往下滚动时展现的数据大盘预览 -->
-    <div class="cockpit-preview">
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="label">达人发信总数</div>
-          <div class="val">1,284 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">封</span></div>
-        </div>
-        <div class="stat-card">
-          <div class="label">达人回复汇总</div>
-          <div class="val" style="color:#34d399;">31 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">封</span></div>
-        </div>
-        <div class="stat-card">
-          <div class="label">真人有效开信 (已剔除扫描)</div>
-          <div class="val" style="color:#38bdf8;">624 <span style="font-size:14px;color:#94a3b8;font-weight:normal;">次</span></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 详细介绍 -->
-    <div class="features-grid">
-      <div class="f-box">
-        <h3>多账号自动发送</h3>
-        <p>绑定多个发信账号，按你设的间隔随机发出，解放双手，把冷邮触达的效率拉满。</p>
-      </div>
-      <div class="f-box">
-        <h3>分散发送压力</h3>
-        <p>多账号轮换、发送间隔随机、每日量可控，降低单个账号触发邮箱风控的概率。</p>
-      </div>
-      <div class="f-box">
-        <h3>一套模板，逐封换名</h3>
-        <p>模板只写一次，收件人名字按名单自动替换，每封都像单独写的。</p>
-      </div>
-      <div class="f-box">
-        <h3>打开状态可查</h3>
-        <p>每封邮件打开没打开、打开了几次、分别在什么时间打开的，都能查。不同时间反复打开却没回复的，多半有意向还在犹豫 — 把这批人挑出来，方便你私下做二次跟进。</p>
-      </div>
-      <div class="f-box">
-        <h3>回信集中提醒</h3>
-        <p>所有发信账号的回复自动汇总提醒，不用再一个个邮箱去翻。</p>
-      </div>
-    </div>
 
     <footer>
       © 2026 MailTracker. 专为出海营销与商务拓展赋能.
