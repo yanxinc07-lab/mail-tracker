@@ -117,24 +117,28 @@
       margin-bottom: 24px;
       font-weight: 600;
     }
-    .hero-title {
-      font-size: clamp(42px, 5.5vw, 68px);
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      margin-bottom: 20px;
-      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8), 0 1px 3px rgba(0,0,0,0.9);
+
+    /* 首屏下方双功能块：与两大功能一一对应，权重相当 */
+    .duo-blocks {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      margin: 0 auto 40px;
     }
-    .hero-desc {
-      font-size: 17px;
-      line-height: 1.7;
-      color: #f8fafc;
-      max-width: 600px;
-      margin-bottom: 36px;
-      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
-      font-weight: 400;
+    .duo-block {
+      background: rgba(10, 20, 38, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 18px;
+      padding: 36px 32px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      text-align: left;
+      transition: .3s ease;
     }
-    
+    .duo-block:hover { transform: translateY(-4px); border-color: rgba(56, 189, 248, 0.5); }
+    .duo-block h2 { font-size: 24px; font-weight: 700; margin: 0 0 10px; color: #fff; letter-spacing: 0.01em; }
+    .duo-block p { font-size: 15px; color: #cbd5e1; line-height: 1.65; margin: 0; }
+
     /* 核心双功能按钮组 */
     .hero-btns {
       display: flex;
@@ -334,8 +338,7 @@
     }
 
     @media (max-width: 860px) {
-      .stats-row, .features-grid { grid-template-columns: 1fr; }
-      .hero-title { font-size: 36px; }
+      .stats-row, .features-grid, .duo-blocks { grid-template-columns: 1fr; }
       .hero-btns { flex-direction: column; width: 100%; }
       .btn-glow-blue, .btn-glass-pill { width: 100%; justify-content: center; }
     }
@@ -509,8 +512,6 @@
     <!-- 首屏：完整留白通透的大海原片 -->
     <section class="hero-section">
       <div class="hero-tag">✦ OUTREACH, ON AUTOPILOT · 让触达自己跑起来</div>
-      <h1 class="hero-title">一键发出，坐等回复。</h1>
-      <p class="hero-desc">专为跨境商务与达人营销打造的 Gmail 批量发信工具。<br>多账号轮换、随机间隔，稳稳送达；发出之后，打开与回复自动汇总，系统误扫自动过滤。</p>
 
       <!-- 核心业务入口：只留批量触达一个（数据查看走触达内的打开追踪段） -->
       <div class="hero-btns">
@@ -523,6 +524,18 @@
         SCROLL TO EXPLORE ↓
       </div>
     </section>
+
+    <!-- 首屏下方双功能块：对应自动发信与邮件追踪两大功能 -->
+    <div class="duo-blocks">
+      <div class="duo-block">
+        <h2>规模化自动触达</h2>
+        <p>名单一次导入，多账号轮换自动发送。</p>
+      </div>
+      <div class="duo-block">
+        <h2>邮件状态查询</h2>
+        <p>谁打开了、什么时候打开的，一处看清。</p>
+      </div>
+    </div>
 
     <!-- 往下滚动时展现的数据大盘预览 -->
     <div class="cockpit-preview">
@@ -542,19 +555,27 @@
       </div>
     </div>
 
-    <!-- 三大核心特性长卷 -->
+    <!-- 详细介绍 -->
     <div class="features-grid">
       <div class="f-box">
-        <h3>多账号轮换 · 稳定送达</h3>
-        <p>多个 Gmail 账号自动轮换发送，发送间隔随机可调，每个号发多少由你自己定，节奏稳、不扎堆。</p>
+        <h3>多账号自动发送</h3>
+        <p>绑定多个发信账号，按你设的间隔随机发出，解放双手，把冷邮触达的效率拉满。</p>
       </div>
       <div class="f-box">
-        <h3>名单管理 · 再发一轮</h3>
-        <p>收件人名单粘贴即用、自动去重；没回复的一键再发一轮，已回复和退信的自动排除，不重复打扰。</p>
+        <h3>分散发送压力</h3>
+        <p>多账号轮换、发送间隔随机、每日量可控，降低单个账号触发邮箱风控的概率。</p>
       </div>
       <div class="f-box">
-        <h3>发后追踪 · 回复提醒</h3>
-        <p>每封信的打开情况自动汇总，30 秒声呐过滤系统误扫；达人一回复，第一时间汇总到回复页提醒你。</p>
+        <h3>一套模板，逐封换名</h3>
+        <p>模板只写一次，收件人名字按名单自动替换，每封都像单独写的。</p>
+      </div>
+      <div class="f-box">
+        <h3>打开状态可查</h3>
+        <p>每封邮件打开没打开、打开了几次、分别在什么时间打开的，都能查。不同时间反复打开却没回复的，多半有意向还在犹豫 — 把这批人挑出来，方便你私下做二次跟进。</p>
+      </div>
+      <div class="f-box">
+        <h3>回信集中提醒</h3>
+        <p>所有发信账号的回复自动汇总提醒，不用再一个个邮箱去翻。</p>
       </div>
     </div>
 
