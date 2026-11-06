@@ -91,14 +91,27 @@
     }
     .btn-nav-capsule:hover { background: rgba(255, 255, 255, 0.3); }
 
-    /* 4. 首屏展示区：tag + CTA + 两列功能组同屏呈现，不再满屏留白 */
+    /* 4. 首屏展示区（fix42）：约 100vh，只放胶囊 + CTA + 两个功能块，功能块绝对定位沉到首屏下端 */
     .hero-section {
+      position: relative;
       display: flex;
       flex-direction: column;
-      justify-content: flex-start;
+      justify-content: center;
       align-items: center;
       text-align: center;
-      padding: 54px 0 6px;
+      min-height: calc(100vh - 84px);
+      padding: 54px 0 54px;
+    }
+    /* 胶囊 + CTA 组：在 hero 全高内垂直居中，再上移半个导航高（42px），
+       让组中心落在整屏正中而不是 hero 段的正中（导航 84px 在流内占高） */
+    .hero-center {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      transform: translateY(-42px);
     }
     .hero-tag {
       display: inline-flex;
@@ -117,16 +130,17 @@
       font-weight: 600;
     }
 
-    /* 首屏双列功能组：每列 = 功能块 + 归属它的详细介绍卡，自上而下跟着功能走 */
-    .feature-cols {
+    /* 首屏双功能块：绝对定位锚在 hero 底部（脱流，不影响胶囊+按钮组的居中） */
+    .duo-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 44px;
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 22px;
-      width: 100%;
-      margin-top: 42px;
       text-align: left;
     }
-    .f-col { display: flex; flex-direction: column; gap: 22px; }
     .duo-block {
       background: rgba(10, 20, 38, 0.7);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -193,33 +207,35 @@
       box-shadow: 0 12px 30px rgba(45, 106, 79, 0.55);
     }
 
-    .scroll-down {
-      margin-top: 36px;
-      font-size: 11px;
-      letter-spacing: 0.2em;
-      color: rgba(255, 255, 255, 0.7);
-      text-transform: uppercase;
-      animation: bounce 2s infinite;
+    /* 5. 第二页详细介绍（fix42）：降级轻排版 — 无卡框，小标题 + 次级正文，细线分条，整节一层深色渐变罩保对比 */
+    .details-section {
+      margin-top: 26px;
+      /* fix42 二改：整节独立成第二页 — 与首屏同高，内容从节顶部排，首屏一丝不露 */
+      min-height: calc(100vh - 84px);
+      padding: 52px 44px 58px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(2, 11, 25, 0.55) 0%, rgba(2, 11, 25, 0.82) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
-    @keyframes bounce {
-      0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-      40% { transform: translateY(-6px); }
-      60% { transform: translateY(-3px); }
-    }
-
-    /* 5. 详细介绍卡（归在各自功能列内，见 .feature-cols） */
-    .f-box {
-      background: rgba(10, 20, 38, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 18px;
-      padding: 32px 24px;
-      backdrop-filter: blur(16px);
-      transition: .3s ease;
+    .details-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 52px;
       text-align: left;
     }
-    .f-box:hover { transform: translateY(-6px); border-color: rgba(56, 189, 248, 0.5); }
-    .f-box h3 { font-size: 18px; font-weight: 700; margin: 0 0 10px; color: #fff; }
-    .f-box p { font-size: 14px; color: #cbd5e1; line-height: 1.6; margin: 0; }
+    .group-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      color: #7dd3fc;
+      margin-bottom: 4px;
+    }
+    .d-item {
+      padding: 18px 0 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .d-item h3 { font-size: 16px; font-weight: 600; margin: 0 0 6px; color: rgba(255, 255, 255, 0.9); }
+    .d-item p { font-size: 14px; color: rgba(203, 213, 225, 0.78); line-height: 1.7; margin: 0; }
 
     footer { text-align: center; padding: 40px 0 60px; margin-top: 70px; font-size: 13px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.1); }
 
@@ -312,7 +328,8 @@
     }
 
     @media (max-width: 860px) {
-      .feature-cols { grid-template-columns: 1fr; }
+      .duo-row, .details-cols { grid-template-columns: 1fr; }
+      .details-section { padding: 40px 24px 46px; }
       .hero-btns { flex-direction: column; width: 100%; }
       .btn-glow-blue, .btn-glass-pill { width: 100%; justify-content: center; }
     }
@@ -483,55 +500,62 @@
       </div>
     </header>
 
-    <!-- 首屏：tag + 入口 + 双列功能组同屏（两块各带自己的详细介绍，不再满屏留白） -->
+    <!-- 首屏（fix42）：只放三样 — 小字胶囊 + CTA 按钮 + 两个功能块（贴首屏下端，别的不放） -->
     <section class="hero-section">
-      <div class="hero-tag">✦ OUTREACH, ON AUTOPILOT · 让触达自己跑起来</div>
+      <!-- 胶囊 + CTA：在 hero 全高内垂直居中（fix42 三改） -->
+      <div class="hero-center">
+        <div class="hero-tag">✦ OUTREACH, ON AUTOPILOT · 让触达自己跑起来</div>
 
-      <!-- 核心业务入口：只留批量触达一个（数据查看走触达内的打开追踪段） -->
-      <div class="hero-btns">
-        <button onclick="navigateTo('/outreach')" class="btn-glow-blue">
-          🚀 发起批量触达 →
-        </button>
+        <!-- 核心业务入口：只留批量触达一个（数据查看走触达内的打开追踪段） -->
+        <div class="hero-btns">
+          <button onclick="navigateTo('/outreach')" class="btn-glow-blue">
+            🚀 发起批量触达 →
+          </button>
+        </div>
       </div>
 
-      <!-- 双列功能组：每列 = 功能块 + 归属它的详细介绍卡 -->
-      <div class="feature-cols">
-        <div class="f-col">
-          <div class="duo-block">
-            <h2>规模化自动触达</h2>
-            <p>名单一次导入，多账号轮换自动发送。</p>
-          </div>
-          <div class="f-box">
+      <!-- 两个功能块：强卡片，沉到首屏底部 -->
+      <div class="duo-row">
+        <div class="duo-block">
+          <h2>规模化自动触达</h2>
+          <p>名单一次导入，多账号轮换自动发送。</p>
+        </div>
+        <div class="duo-block">
+          <h2>邮件状态查询</h2>
+          <p>谁打开了、什么时候打开的，一处看清。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 第二页（fix42）：详细介绍，轻排版无卡框，按功能分组归属 -->
+    <section class="details-section" id="details">
+      <div class="details-cols">
+        <div class="d-group">
+          <div class="group-title">规模化自动触达</div>
+          <div class="d-item">
             <h3>多账号自动发送</h3>
             <p>绑定多个发信账号，按你设的间隔随机发出，解放双手，把冷邮触达的效率拉满。</p>
           </div>
-          <div class="f-box">
+          <div class="d-item">
             <h3>分散发送压力</h3>
             <p>多账号轮换、发送间隔随机、每日量可控，降低单个账号触发邮箱风控的概率。</p>
           </div>
-          <div class="f-box">
+          <div class="d-item">
             <h3>一套模板，逐封换名</h3>
             <p>模板只写一次，收件人名字按名单自动替换，每封都像单独写的。</p>
           </div>
         </div>
-        <div class="f-col">
-          <div class="duo-block">
-            <h2>邮件状态查询</h2>
-            <p>谁打开了、什么时候打开的，一处看清。</p>
-          </div>
-          <div class="f-box">
+        <div class="d-group">
+          <div class="group-title">邮件状态查询</div>
+          <div class="d-item">
             <h3>打开状态可查</h3>
             <p>每封邮件打开没打开、打开了几次、分别在什么时间打开的，都能查。不同时间反复打开却没回复的，多半有意向还在犹豫 — 把这批人挑出来，方便你私下做二次跟进。</p>
           </div>
-          <div class="f-box">
+          <div class="d-item">
             <h3>回信集中提醒</h3>
             <p>所有发信账号的回复自动汇总提醒，不用再一个个邮箱去翻。</p>
           </div>
         </div>
-      </div>
-
-      <div class="scroll-down">
-        SCROLL TO EXPLORE ↓
       </div>
     </section>
 
