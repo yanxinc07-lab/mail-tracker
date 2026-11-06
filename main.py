@@ -1656,7 +1656,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix28-linkpage"}
+    return {"v": "v5-fix29-scopenote"}
 
 
 @app.get("/api/accounts")
