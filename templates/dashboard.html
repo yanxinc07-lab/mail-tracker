@@ -20,6 +20,23 @@
       background: #FFFFFF; border: 1px solid rgba(36, 51, 44, 0.1); color: #5E7267; margin-left: 8px;
     }
     .nav-btn.active { background: #2D6A4F; color: #FFF; border-color: #2D6A4F; }
+    .range-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .range-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .range-tab {
+      padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+      background: #FFFFFF; border: 1px solid rgba(36, 51, 44, 0.1); color: #5E7267;
+    }
+    .range-tab.active { background: #2D6A4F; color: #FFF; border-color: #2D6A4F; }
+    .range-custom { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5E7267; }
+    .range-custom input[type="date"] {
+      padding: 5px 8px; border-radius: 8px; font-size: 13px; color: #202D26;
+      border: 1px solid rgba(36, 51, 44, 0.15); background: #FFFFFF;
+    }
+    .range-apply {
+      padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+      background: #FFFFFF; border: 1px solid rgba(36, 51, 44, 0.1); color: #5E7267;
+    }
+    .range-apply.active { background: #2D6A4F; color: #FFF; border-color: #2D6A4F; }
     .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
     .stat-card { background: #FFF; border-radius: 14px; padding: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.02); }
     .stat-num { font-size: 28px; font-weight: 700; color: #2D6A4F; margin-top: 6px; }
@@ -30,11 +47,29 @@
     .badge { padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
     .badge-read { background: #E8F5E9; color: #2E7D32; }
     .badge-unread { background: #ECEFF1; color: #78909C; }
+    .log-toggle { cursor: pointer; color: #2D6A4F; font-size: 12px; margin-left: 6px; user-select: none; }
+    .log-row td { background: #FBFDFB; padding: 10px 12px 14px 24px; }
+    .log-line { font-size: 12.5px; color: #37474F; padding: 3px 0; }
+    .scan-tag { color: #90A4AE; font-size: 12px; }
+    .empty-note { color: #78909C; font-size: 13px; padding: 14px 0; }
   </style>
   <script>
     const SUPABASE_URL = "https://hteqhquorjycjdxburun.supabase.co";
     const SUPABASE_KEY = "sb_publishable_yVVewqmlY0RGqNX87n_j_Q_oT47OEzK";
     const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let curRange = "all";
+    let curCustom = null; // {start, end} 有值时优先于 curRange
+
+    async function authHeaders() {
+      const { data: { session } } = await client.auth.getSession();
+      const h = { "Content-Type": "application/json" };
+      if (session && session.access_token) h["Authorization"] = "Bearer " + session.access_token;
+      return h;
+    }
+
+    function escHtml(v) { return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+    const fmt = v => { if (!v) return "-"; const d = new Date(v); return isNaN(d) ? v : d.toLocaleString(); };
 
     async function loadDashboardData() {
       const { data: { session } } = await client.auth.getSession();
@@ -42,44 +77,120 @@
         window.location.href = "/";
         return;
       }
-      const { data: emails, error } = await client.from("emails").select("*").eq("user_id", session.user.id).order("send_time", { ascending: false });
-      if (error) { console.error("load emails failed:", error); }
-
-      const total = emails ? emails.length : 0;
-      const read = emails ? emails.filter(e => (e.open_count || 0) > 0).length : 0;
-      const rate = total > 0 ? ((read / total) * 100).toFixed(1) + "%" : "0%";
-
-      document.getElementById("statTotal").innerText = total;
-      document.getElementById("statRead").innerText = read;
-      document.getElementById("statRate").innerText = rate;
-
       const tbody = document.getElementById("emailTableBody");
-      tbody.innerHTML = "";
-      if (emails) {
-        emails.forEach(e => {
-          const tr = document.createElement("tr");
-          let statusHtml;
-          if (e.status === "failed") {
-            const errTxt = String(e.error || "").slice(0, 300).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            statusHtml = '<span class="badge badge-unread">发送失败</span>' + (errTxt ? `<div style="color:#C62828; font-size:12px; margin-top:4px; max-width:360px; white-space:normal; word-break:break-all;">${errTxt}</div>` : "");
-          } else if ((e.open_count || 0) > 0) {
-            statusHtml = `<span class="badge badge-read">已读 ×${e.open_count}</span>`;
-          } else {
-            statusHtml = '<span class="badge badge-unread">未开信</span>';
-          }
-          const fmt = v => { if (!v) return "-"; const d = new Date(v); return isNaN(d) ? v : d.toLocaleString(); };
-          tr.innerHTML = `
-            <td>${e.recipient || "-"}</td>
-            <td>${e.subject || "-"}</td>
-            <td>${statusHtml}</td>
-            <td>${fmt(e.first_open_time)}</td>
-            <td>${fmt(e.send_time)}</td>
-          `;
-          tbody.appendChild(tr);
-        });
+      const params = new URLSearchParams();
+      if (curCustom) {
+        params.set("custom_start", curCustom.start);
+        params.set("custom_end", curCustom.end);
+      } else {
+        params.set("time_range", curRange);
       }
+      let data;
+      try {
+        const resp = await fetch("/api/dashboard_data?" + params.toString(), { headers: await authHeaders() });
+        data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "未知错误");
+      } catch (e) {
+        tbody.innerHTML = "";
+        document.getElementById("dashMsg").innerHTML =
+          '<div style="color:#C62828; font-size:13px; padding:8px 0;">加载失败：' + escHtml(String(e.message || e)) + '</div>';
+        return;
+      }
+      document.getElementById("dashMsg").innerHTML = "";
+
+      const emails = data.emails || [];
+      const logsMap = data.logs_map || {};
+      const stats = data.stats || { sent: 0, opened: 0, rate: 0 };
+      document.getElementById("statTotal").innerText = stats.sent;
+      document.getElementById("statRead").innerText = stats.opened;
+      document.getElementById("statRate").innerText = (stats.rate || 0) + "%";
+
+      tbody.innerHTML = "";
+      if (emails.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="5"><div class="empty-note">这个范围内暂时没有邮件记录。</div></td>';
+        tbody.appendChild(tr);
+        return;
+      }
+      emails.forEach(e => {
+        const logs = logsMap[e.id] || [];
+        const hasLogs = logs.length > 0;
+        const tr = document.createElement("tr");
+        let statusHtml;
+        if (e.status === "failed") {
+          const errTxt = escHtml(String(e.error || "").slice(0, 300));
+          statusHtml = '<span class="badge badge-unread">发送失败</span>' + (errTxt ? `<div style="color:#C62828; font-size:12px; margin-top:4px; max-width:360px; white-space:normal; word-break:break-all;">${errTxt}</div>` : "");
+        } else if ((e.open_count || 0) > 0) {
+          statusHtml = `<span class="badge badge-read">已读 ×${e.open_count}</span>`;
+        } else {
+          statusHtml = '<span class="badge badge-unread">未开信</span>';
+        }
+        if ((e.open_count || 0) > 0 || hasLogs) {
+          statusHtml += `<span class="log-toggle" data-eid="${escHtml(e.id)}">详情 ▾</span>`;
+        }
+        tr.innerHTML = `
+          <td>${escHtml(e.recipient || "-")}</td>
+          <td>${escHtml(e.subject || "-")}</td>
+          <td>${statusHtml}</td>
+          <td>${fmt(e.first_open_time)}</td>
+          <td>${fmt(e.send_time)}</td>
+        `;
+        tbody.appendChild(tr);
+
+        const ltr = document.createElement("tr");
+        ltr.className = "log-row";
+        ltr.id = "logs-" + e.id;
+        ltr.style.display = "none";
+        let inner;
+        if (!hasLogs) {
+          inner = '<div class="empty-note">暂无逐次记录（旧数据只有次数）</div>';
+        } else {
+          inner = logs.map((lg, i) =>
+            `<div class="log-line">#${i + 1} ${fmt(lg.open_time)}${lg.is_scanner ? ' <span class="scan-tag">（系统扫）</span>' : ''}</div>`
+          ).join("");
+        }
+        ltr.innerHTML = `<td colspan="5">${inner}</td>`;
+        tbody.appendChild(ltr);
+      });
     }
-    window.addEventListener("DOMContentLoaded", loadDashboardData);
+
+    document.addEventListener("click", ev => {
+      const t = ev.target.closest(".log-toggle");
+      if (!t) return;
+      const row = document.getElementById("logs-" + t.dataset.eid);
+      if (!row) return;
+      const open = row.style.display !== "none";
+      row.style.display = open ? "none" : "";
+      t.textContent = open ? "详情 ▾" : "详情 ▴";
+    });
+
+    function setActiveTab() {
+      document.querySelectorAll(".range-tab").forEach(b =>
+        b.classList.toggle("active", !curCustom && b.dataset.range === curRange));
+      document.getElementById("customApply").classList.toggle("active", !!curCustom);
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      document.querySelectorAll(".range-tab").forEach(b => {
+        b.addEventListener("click", () => {
+          curRange = b.dataset.range;
+          curCustom = null;
+          document.getElementById("customStart").value = "";
+          document.getElementById("customEnd").value = "";
+          setActiveTab();
+          loadDashboardData();
+        });
+      });
+      document.getElementById("customApply").addEventListener("click", () => {
+        const s = document.getElementById("customStart").value;
+        const e = document.getElementById("customEnd").value;
+        if (!s || !e) { alert("请把开始和结束日期都选好"); return; }
+        curCustom = { start: s, end: e };
+        setActiveTab();
+        loadDashboardData();
+      });
+      loadDashboardData();
+    });
   </script>
 </head>
 <body>
@@ -94,12 +205,29 @@
         <a href="/admin" class="nav-btn" id="adminNavLink" style="display:none">🛠 站长监控室</a>
       </div>
     </div>
+    <div class="range-bar">
+      <div class="range-tabs">
+        <button class="range-tab active" data-range="all">全部</button>
+        <button class="range-tab" data-range="today">今天</button>
+        <button class="range-tab" data-range="yesterday">昨天</button>
+        <button class="range-tab" data-range="week">7天</button>
+        <button class="range-tab" data-range="month">30天</button>
+        <button class="range-tab" data-range="quarter">90天</button>
+      </div>
+      <div class="range-custom">
+        <input type="date" id="customStart">
+        <span>至</span>
+        <input type="date" id="customEnd">
+        <button class="range-apply" id="customApply">筛选</button>
+      </div>
+    </div>
     <div class="stats-grid">
       <div class="stat-card"><div>累计发送数</div><div class="stat-num" id="statTotal">0</div></div>
       <div class="stat-card"><div>已读邮件数</div><div class="stat-num" id="statRead">0</div></div>
       <div class="stat-card"><div>整体开信率</div><div class="stat-num" id="statRate">0%</div></div>
     </div>
     <div class="table-card">
+      <div id="dashMsg"></div>
       <table>
         <thead><tr><th>收件人</th><th>邮件主题</th><th>状态</th><th>首开时间</th><th>发送时间</th></tr></thead>
         <tbody id="emailTableBody"></tbody>
