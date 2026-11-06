@@ -127,14 +127,16 @@
         } else {
           statusHtml = '<span class="badge badge-unread">未开信</span>';
         }
+        let firstOpenHtml = fmt(e.first_open_time);
         if ((e.open_count || 0) > 0 || hasLogs) {
-          statusHtml += `<span class="log-toggle" data-eid="${escHtml(e.id)}">详情 ▾</span>`;
+          const n = hasLogs ? logs.length : (e.open_count || 0);
+          firstOpenHtml += `<div><span class="log-toggle" data-eid="${escHtml(e.id)}" data-n="${n}">共${n}次 ▾</span></div>`;
         }
         tr.innerHTML = `
           <td>${escHtml(e.recipient || "-")}</td>
           <td>${escHtml(e.subject || "-")}</td>
           <td>${statusHtml}</td>
-          <td>${fmt(e.first_open_time)}</td>
+          <td>${firstOpenHtml}</td>
           <td>${fmt(e.send_time)}</td>
         `;
         tbody.appendChild(tr);
@@ -163,7 +165,7 @@
       if (!row) return;
       const open = row.style.display !== "none";
       row.style.display = open ? "none" : "";
-      t.textContent = open ? "详情 ▾" : "详情 ▴";
+      t.textContent = open ? `共${t.dataset.n}次 ▾` : `共${t.dataset.n}次 ▴`;
     });
 
     function setActiveTab() {
