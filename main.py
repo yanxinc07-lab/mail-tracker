@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -1810,7 +1810,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix37-nav3"}
+    return {"v": "v5-fix39-progressback"}
 
 
 @app.get("/api/accounts")
@@ -2030,11 +2030,12 @@ async def outreach_page(request: Request):
     return _page_with_sender_cookie("outreach.html", request)
 
 
-@app.get("/progress")
+@app.get("/progress", response_class=HTMLResponse)
 async def progress_page(request: Request):
-    # fix37：发送进度已并入自动发信页（/outreach 下方的发送进度区），
-    # 旧链接/书签一律重定向过去（落地页 /outreach 会种发件人 Cookie）。
-    return RedirectResponse(url="/outreach#progress", status_code=302)
+    # 发送进度独立页。fix37 曾并入 /outreach 并把此路由改成重定向，
+    # fix39 按用户纠正撤销并页（发信与进度是同一个入口下的两页），
+    # 恢复直接服务 progress.html。
+    return _page_with_sender_cookie("progress.html", request)
 
 
 @app.get("/replies", response_class=HTMLResponse)
