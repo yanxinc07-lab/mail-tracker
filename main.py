@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks, Header
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -636,6 +636,10 @@ def _startup_housekeeping():
     标出来后用户才能在进度页对它们点“继续发送”或“终止”。"""
     for stmt in (
         "ALTER TABLE emails ADD COLUMN IF NOT EXISTS task_id text",
+        # fix32：emails 的 error 列从未真正落到线上库（原版 init_db 没有它、
+        # 历次改造也没人 ALTER 过），但 fix15 起明细/大盘的 SELECT 一直在读它，
+        # 线上大盘因此 500（UndefinedColumn）。启动时幂等补列，与 task_id 同例。
+        "ALTER TABLE emails ADD COLUMN IF NOT EXISTS error text",
         "CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, "
         "key text NOT NULL, value text, PRIMARY KEY (user_id, key))",
         "CREATE TABLE IF NOT EXISTS user_registry (user_id text PRIMARY KEY, "
@@ -1721,10 +1725,35 @@ def _dashboard_bounds(time_range: str, custom_start: str, custom_end: str):
     return None, None
 
 
+def _safe_err_text(e: Exception) -> str:
+    """把异常压成可回前端的一行文本：带类型名，抹掉数据库连接串等敏感
+    片段并限长。沿 fix24 admin 接口「错误透出」的思路——与其让前端只拿到
+    一句纯文本 Internal Server Error，不如把真实原因亮出来便于定位。"""
+    msg = f"{type(e).__name__}: {e}"
+    if DATABASE_URL:
+        msg = msg.replace(DATABASE_URL, "[db]")
+    msg = re.sub(r"postgres(?:ql)?://\S+", "[db]", msg)
+    msg = re.sub(r"(?i)(password|passwd|pwd)\s*=\s*\S+", r"\1=[hidden]", msg)
+    return " ".join(msg.split())[:300]
+
+
 @app.get("/api/dashboard_data")
 async def dashboard_data(time_range: str = "all", custom_start: str = "",
                          custom_end: str = "",
                          authorization: Optional[str] = Header(default=None)):
+    try:
+        return _dashboard_data_impl(time_range, custom_start, custom_end,
+                                    authorization)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"大盘数据查询出错：{_safe_err_text(e)}"})
+
+
+def _dashboard_data_impl(time_range: str, custom_start: str, custom_end: str,
+                         authorization: Optional[str]):
     user_id = _verify_user_id(authorization)
     start_iso, end_iso = _dashboard_bounds(time_range or "all",
                                            custom_start or "", custom_end or "")
@@ -1781,7 +1810,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix31-calranges"}
+    return {"v": "v5-fix32-dashfix"}
 
 
 @app.get("/api/accounts")
