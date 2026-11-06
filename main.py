@@ -386,13 +386,26 @@ def _parse_msg_datetime(raw) -> Optional[datetime]:
     return dt
 
 
-def _gmail_reply_link(account_email: str, gmail_thrid, gmail_msgid, from_email: str) -> str:
-    """回复直达 Gmail 的链接（2026-11-04 补充定版）：有谷歌内部编号就直达会话，
-    带 authuser 切到正确的发信邮箱；没有编号就退回按发件人搜索的兜底链接。"""
-    ident = gmail_thrid or gmail_msgid
-    if ident:
-        return f"https://mail.google.com/mail/u/?authuser={account_email}#inbox/{ident}"
-    return f"https://mail.google.com/mail/u/?authuser={account_email}#search/from%3A{from_email}"
+def _gmail_reply_link(account_email: str, gmail_thrid, gmail_msgid, from_email: str,
+                      message_id: str = None) -> str:
+    """回复直达 Gmail 的链接（2026-11-04 补充定版；fix28 修正编号进制与兜底）：
+    谷歌内部编号（X-GM-THRID/X-GM-MSGID）入库时是十进制，而 Gmail 网页
+    #inbox/<id> 只认十六进制，拼链接前必须先转十六进制，否则落不到原信；
+    优先 thrid（打开整个会话），无 thrid 时用 msgid（打开单封）。
+    编号缺失或转换异常时，退回按 RFC Message-ID 搜索定位（比按发件人搜更准），
+    再兜底才是按发件人搜索。authuser 始终带上、切到正确的发信邮箱。"""
+    base = f"https://mail.google.com/mail/u/?authuser={account_email}"
+    for ident in (gmail_thrid, gmail_msgid):
+        if ident is None or str(ident).strip() == "":
+            continue
+        try:
+            return f"{base}#inbox/{format(int(str(ident).strip()), 'x')}"
+        except (TypeError, ValueError):
+            continue
+    mid = (message_id or "").strip().strip("<>").strip()
+    if mid:
+        return f"{base}#search/rfc822msgid%3A{mid}"
+    return f"{base}#search/from%3A{from_email}"
 
 
 def _imap_fetch_headers(account_email: str, password: str, since: datetime,
@@ -1604,7 +1617,7 @@ async def list_replies(limit: int = 100, authorization: Optional[str] = Header(d
         limit = 100
     rows = _db_query(
         "SELECT id, account_email, from_email, from_name, subject, received_at, "
-        "gmail_thrid, gmail_msgid, task_id, created_at FROM replies "
+        "gmail_thrid, gmail_msgid, message_id, task_id, created_at FROM replies "
         "WHERE user_id = %s ORDER BY received_at DESC NULLS LAST, created_at DESC LIMIT %s",
         (user_id, limit))
     subjects = {}
@@ -1626,7 +1639,8 @@ async def list_replies(limit: int = 100, authorization: Optional[str] = Header(d
             "task_id": r.get("task_id"),
             "task_subject": subjects.get(r.get("task_id")),
             "gmail_url": _gmail_reply_link(r["account_email"], r.get("gmail_thrid"),
-                                           r.get("gmail_msgid"), r["from_email"]),
+                                           r.get("gmail_msgid"), r["from_email"],
+                                           r.get("message_id")),
         })
     total_rows = _db_query("SELECT COUNT(*) AS n FROM replies WHERE user_id = %s", (user_id,))
     return {"replies": out, "total": int(total_rows[0]["n"]) if total_rows else 0}
@@ -1642,7 +1656,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix27-replyfilter"}
+    return {"v": "v5-fix28-linkpage"}
 
 
 @app.get("/api/accounts")
