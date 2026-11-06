@@ -1810,7 +1810,7 @@ class AccountIn(BaseModel):
 
 @app.get("/api/version")
 async def api_version():
-    return {"v": "v5-fix40-homecopy"}
+    return {"v": "v5-fix41-homeorder"}
 
 
 @app.get("/api/accounts")
