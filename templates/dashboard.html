@@ -88,8 +88,10 @@
       let data;
       try {
         const resp = await fetch("/api/dashboard_data?" + params.toString(), { headers: await authHeaders() });
-        data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || "未知错误");
+        const raw = await resp.text();
+        try { data = JSON.parse(raw); } catch (_) { data = null; }
+        if (!resp.ok) throw new Error((data && (data.error || data.detail)) || ("服务器错误（HTTP " + resp.status + "）"));
+        if (data && data.error) throw new Error(data.error);
       } catch (e) {
         tbody.innerHTML = "";
         document.getElementById("dashMsg").innerHTML =
