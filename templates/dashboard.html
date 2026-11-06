@@ -47,10 +47,12 @@
     .badge { padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
     .badge-read { background: #E8F5E9; color: #2E7D32; }
     .badge-unread { background: #ECEFF1; color: #78909C; }
-    .log-toggle { cursor: pointer; color: #2D6A4F; font-size: 12px; margin-left: 6px; user-select: none; }
+    .log-toggle { cursor: pointer; user-select: none; }
+    .log-toggle .log-arrow { font-size: 10px; margin-left: 2px; }
     .log-row td { background: #FBFDFB; padding: 10px 12px 14px 24px; }
     .log-line { font-size: 12.5px; color: #37474F; padding: 3px 0; }
-    .scan-tag { color: #90A4AE; font-size: 12px; }
+    .log-time { white-space: nowrap; }
+    .scan-tag { display: inline-block; white-space: nowrap; background: #C9A227; color: #3B2F04; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
     .empty-note { color: #78909C; font-size: 13px; padding: 14px 0; }
   </style>
   <script>
@@ -110,7 +112,7 @@
       tbody.innerHTML = "";
       if (emails.length === 0) {
         const tr = document.createElement("tr");
-        tr.innerHTML = '<td colspan="5"><div class="empty-note">这个范围内暂时没有邮件记录。</div></td>';
+        tr.innerHTML = '<td colspan="4"><div class="empty-note">这个范围内暂时没有邮件记录。</div></td>';
         tbody.appendChild(tr);
         return;
       }
@@ -123,20 +125,14 @@
           const errTxt = escHtml(String(e.error || "").slice(0, 300));
           statusHtml = '<span class="badge badge-unread">发送失败</span>' + (errTxt ? `<div style="color:#C62828; font-size:12px; margin-top:4px; max-width:360px; white-space:normal; word-break:break-all;">${errTxt}</div>` : "");
         } else if ((e.open_count || 0) > 0) {
-          statusHtml = `<span class="badge badge-read">已读 ×${e.open_count}</span>`;
+          statusHtml = `<span class="badge badge-read log-toggle" data-eid="${escHtml(e.id)}">已读 ×${e.open_count} <span class="log-arrow">▾</span></span>`;
         } else {
           statusHtml = '<span class="badge badge-unread">未开信</span>';
-        }
-        let firstOpenHtml = fmt(e.first_open_time);
-        if ((e.open_count || 0) > 0 || hasLogs) {
-          const n = hasLogs ? logs.length : (e.open_count || 0);
-          firstOpenHtml += `<div><span class="log-toggle" data-eid="${escHtml(e.id)}" data-n="${n}">共${n}次 ▾</span></div>`;
         }
         tr.innerHTML = `
           <td>${escHtml(e.recipient || "-")}</td>
           <td>${escHtml(e.subject || "-")}</td>
           <td>${statusHtml}</td>
-          <td>${firstOpenHtml}</td>
           <td>${fmt(e.send_time)}</td>
         `;
         tbody.appendChild(tr);
@@ -150,10 +146,10 @@
           inner = '<div class="empty-note">暂无逐次记录（旧数据只有次数）</div>';
         } else {
           inner = logs.map((lg, i) =>
-            `<div class="log-line">#${i + 1} ${fmt(lg.open_time)}${lg.is_scanner ? ' <span class="scan-tag">（系统扫）</span>' : ''}</div>`
+            `<div class="log-line"><span class="log-time">#${i + 1} ${fmt(lg.open_time)}</span>${lg.is_scanner ? '<span class="scan-tag">系统扫</span>' : ''}</div>`
           ).join("");
         }
-        ltr.innerHTML = `<td colspan="5">${inner}</td>`;
+        ltr.innerHTML = `<td colspan="4">${inner}</td>`;
         tbody.appendChild(ltr);
       });
     }
@@ -165,7 +161,8 @@
       if (!row) return;
       const open = row.style.display !== "none";
       row.style.display = open ? "none" : "";
-      t.textContent = open ? `共${t.dataset.n}次 ▾` : `共${t.dataset.n}次 ▴`;
+      const arrow = t.querySelector(".log-arrow");
+      if (arrow) arrow.textContent = open ? "▾" : "▴";
     });
 
     function setActiveTab() {
@@ -235,7 +232,7 @@
     <div class="table-card">
       <div id="dashMsg"></div>
       <table>
-        <thead><tr><th>收件人</th><th>邮件主题</th><th>状态</th><th>首开时间</th><th>发送时间</th></tr></thead>
+        <thead><tr><th>收件人</th><th>邮件主题</th><th>状态</th><th>发送时间</th></tr></thead>
         <tbody id="emailTableBody"></tbody>
       </table>
     </div>
